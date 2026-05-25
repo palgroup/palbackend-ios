@@ -29,7 +29,7 @@ let package = Package(
         .binaryTarget(
             name: "Palbe",
             url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.1.0/Palbe.xcframework.zip",
-            checksum: "1ce01d98b9085b7ae4d544a24afb128a143822986cf57163e27504af0018fc47"
+            checksum: "a2796dc160aa741c75e8dd349232fa939e75e64dfc0abae3ec321cc9d8f4435d"
         ),
         .executableTarget(name: "PalBackendCodegen"),
         .plugin(
