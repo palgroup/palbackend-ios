@@ -26,8 +26,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.4.1/Palbe.xcframework.zip",
-            checksum: "e3e1176dde854090001ae5aa1ddf705301d1a8205ccca1fb7c65c7b4efa3ee0e"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.5.0/Palbe.xcframework.zip",
+            checksum: "c43fa8309d393f7b24d6bed34d74d276afb66ed139a5fbd83804860d3a63a37f"
         ),
     ],
     swiftLanguageModes: [.v6]
