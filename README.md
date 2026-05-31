@@ -1,152 +1,194 @@
-# palbackend-ios
+# Palbe — Palbase managed-backend SDK for iOS
 
-The **Palbe** SDK — one import for iOS apps with a managed Palbase backend.
+`import Palbe` gives your app a single entry point, **`pb`** — typed backend
+calls, auth, feature flags, and analytics — wired to your Palbase project. No
+setup boilerplate, no transport to manage: the SDK self-configures from a
+generated contract file and refreshes it on every Xcode build.
+
+> Distributed as a closed-source binary (XCFramework). This is the public
+> distribution repo you add via SPM; the SDK source is private.
+
+- **Platforms:** iOS 18+, macOS 15+, tvOS 18+, watchOS 11+
+- **Swift:** 6 (strict concurrency)
+- **Dependencies:** none (Foundation only)
+
+---
+
+## Install
+
+Add the package in Xcode (**File ▸ Add Package Dependencies…**) or in your
+`Package.swift`:
+
+```swift
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.5.0")
+```
+
+Then add `Palbe` to your target and `import Palbe`.
+
+## Configure (one command, then never again)
+
+You don't call `configure()` in code. Instead, run the Palbase CLI **once** to
+wire codegen into your Xcode project:
+
+```bash
+palbase mobile setup ios --ref <your-project-ref>
+```
+
+This adds an Xcode **Run Script** build phase that, on every build:
+
+- generates typed `pb.<namespace>.<operation>(...)` methods from your backend's
+  endpoints, and
+- writes `PalbaseGenerated.json` (URL, API key, OAuth providers) into the app
+  bundle.
+
+The SDK reads that file lazily on the first `pb.*` access and configures itself.
+Because the script runs on every build, the URL / key / OAuth config always
+reflect what's in Studio.
+
+> To re-generate manually (e.g. after changing endpoints), run
+> `palbase mobile codegen ios`.
+
+---
+
+## Usage
+
+Everything hangs off the global `pb`.
+
+### Typed endpoint calls (generated)
+
+The CLI generates one typed method per backend endpoint:
 
 ```swift
 import Palbe
 
-pb.configure(apiKey: "pb_abc123m_c…")   // anon (publishable) key
-
-let room = try await pb.rooms.create(.init(name: "lobby"))   // generated, typed
-try await pb.auth.signIn(email: "a@b.com", password: "…")
-```
-
-`import Palbe` gives a single entry point — `pb`. Generated typed endpoint calls
-(`pb.rooms.create(...)`), an untyped escape hatch (`pb.call` / `pb.upload`), and
-auth (`pb.auth.*`) — and nothing else. Transport, token storage, the embedded auth
-client, and App Attest are all internal. There is no direct-database door: a
-backend app talks to **its backend**, which owns the business rules.
-
-> Building a smaller app that talks directly to the database with RLS? Use the
-> granular [`palbase-ios`](https://github.com/palgroup/palbase-ios) modules
-> (`PalbaseAuth` + `PalbaseDB` + …) instead.
-
-## Install (SwiftPM)
-
-```swift
-.package(url: "https://github.com/palgroup/palbackend-ios.git", from: "0.2.1")
-// target dependency:
-.product(name: "Palbe", package: "palbackend-ios")
-```
-
-## Backend RPC — `pb`
-
-Every `defineEndpoint` you ship is reachable as an RPC (`POST /rpc/{name}`). Use the
-generated typed call (preferred) or the untyped escape hatch:
-
-```swift
-// Generated (see "Generated typed calls" below):
 let room = try await pb.rooms.create(.init(name: "lobby"))
-
-// Untyped — always available, no codegen:
-struct CreateRoom: Encodable, Sendable { let name: String }
-struct Room: Decodable, Sendable { let id: String; let name: String }
-let room2: Room = try await pb.call("rooms.create", CreateRoom(name: "lobby"))
+let todos = try await pb.todos.list()
 ```
 
-### Generated typed calls (autocomplete + compile-time safety)
+These are the preferred surface — fully typed input and output, with typed
+errors when an endpoint declares them.
 
-Instead of hand-writing models and string operation names, generate them from your
-backend's published OpenAPI. Calls then become namespaced and fully typed:
+### Untyped escape hatch
+
+When you don't have (or don't want) codegen — prototyping, scripts — call an
+endpoint by its path:
 
 ```swift
-let room = try await pb.rooms.create(.init(name: "lobby", capacity: 50))
-// room: Rooms.Create.Output  →  room.id, room.name, room.capacity, room.tags
+struct CreateTodo: Encodable { let title: String }
+struct Todo: Decodable { let id: String; let title: String }
+
+let todo: Todo = try await pb.call("todos/create", CreateTodo(title: "Buy milk"))
 ```
 
-The generator is built into the `palbase` CLI — no Node, no SwiftPM plugin, no
-extra tooling. The untyped `pb.call("rooms.create", input)` always works without
-codegen; the typed surface is opt-in via one step.
+`pb.call` and the generated methods emit byte-identical requests — same
+idempotency, App Attest, and header handling.
 
-#### Setup: one Xcode Run Script build phase
-
-Add a **Run Script** phase to your app target (Target → Build Phases → + → New Run
-Script Phase). On every build it fetches the live contract and regenerates the
-typed surface — Debug builds read your local `palbase backend dev`, Release/CI the
-deployed backend:
-
-```sh
-if which palbase >/dev/null; then
-  ENV=$([ "$CONFIGURATION" = "Debug" ] && echo local || echo remote)
-  palbase backend types --lang swift \
-    --env "$ENV" \
-    --out "$DERIVED_FILE_DIR/PalbaseEndpoints.swift"
-else
-  echo "warning: palbase CLI not found — skipping typed codegen"
-fi
-```
-
-Then, in the same phase:
-- **Output Files:** add `$(DERIVED_FILE_DIR)/PalbaseEndpoints.swift` — Xcode
-  compiles it and re-runs the script only when needed.
-- Set **"Based on dependency analysis"** off if you want it to run every build.
-
-Notes:
-- Requires the `palbase` CLI on the build machine (`brew install …` / your install).
-- The Run Script phase is **not network-sandboxed**, which is exactly why this is
-  the single, fully-automatic path (a SwiftPM build plugin can't reach the network).
-  Keep `ENABLE_USER_SCRIPT_SANDBOXING = NO` for the target (the default for apps).
-- The generated file lands in `DerivedData` — never committed, always current.
-
-That's the whole codegen story: one CLI, one build phase. No plugin to install, no
-`openapi.json` to commit.
-
-- **Typed, named errors** — `BackendError` decodes the standard envelope, including
-  Zod field errors (`.validation(fields:)`), `.server(code:…)`, `.rateLimited`,
-  `.unauthorized`. `switch` on them; never parse status codes by hand.
-- **Idempotency** — mutating calls carry an `Idempotency-Key` reused across retries,
-  so a dropped-then-retried `POST` is not applied twice.
-- **Upload with progress**:
+### File upload
 
 ```swift
-struct Out: Decodable, Sendable { let url: String }
-let out: Out = try await pb.upload(
-    "avatars.put", fileURL: localURL, fields: ["caption": "me"],
-    constraints: UploadConstraints(maxSize: 5_000_000, allowedTypes: ["image/png"])
-) { progress in print(progress.fraction) }
+struct UploadResult: Decodable { let url: String }
+
+let result: UploadResult = try await pb.upload(
+    "media/avatar",
+    fileURL: localURL,
+    onProgress: { progress in
+        print("\(progress.fractionCompleted * 100)%")
+    }
+)
 ```
 
-  With `constraints`, an oversize or wrong-type file is rejected client-side before
-  any bytes are sent.
-
-## Auth — `pb.auth`
-
-Auth is embedded; there is no separate module to import. The surface is the core
-set most apps need:
+### Auth
 
 ```swift
+// Email + password
 try await pb.auth.signUp(email: "a@b.com", password: "…")
 try await pb.auth.signIn(email: "a@b.com", password: "…")
-let user = try await pb.auth.getUser()
-let signedIn = await pb.auth.isSignedIn
-let unsub = await pb.auth.onAuthStateChange { event, session in /* … */ }
+
+// Native social sign-in
+try await pb.auth.signInWithApple()
+try await pb.auth.signInWithGoogle()   // client config baked in by codegen
+
 try await pb.auth.signOut()
+let user = try await pb.auth.getUser()
 ```
 
-The session token is managed internally and attached to every backend call; you
-never handle tokens directly.
-
-## App Attest (anti-abuse)
-
-Prove requests come from a genuine build of your app on real Apple hardware —
-requests replayed from an extracted key are rejected server-side.
+Session storage and token refresh are automatic (Keychain-backed). Observe
+auth state for UI gating:
 
 ```swift
-PalBackend.configure(apiKey: "pb_abc123m_c…", appAttest: true)
+let unsubscribe = await pb.auth.onAuthStateChange { state in
+    switch state {
+    case .signedIn(let user): /* show home */ break
+    case .signedOut:          /* show login */ break
+    }
+}
+// keep `unsubscribe` alive for the listener's lifetime
 ```
 
-Flag-gated, all-or-nothing. Off by default; leave it off in development and on the
-Simulator (App Attest is unavailable there). The project must also have App Attest
-enabled server-side. When on, the SDK enrolls a Secure-Enclave key on first use and
-attaches a fresh, request-bound assertion to every call — entirely behind the
-façade; you write no attestation code.
+`onAuthEvent` is a separate hook for side effects (analytics, toasts, debug
+logs) including `tokenRefreshed` and `signedOut(.sessionExpired)`.
 
-## Design
+### Feature flags
 
-- Foundation only — no third-party dependencies.
-- Swift 6 strict concurrency.
-- One product, one import, one closed surface.
+`pb.flags` is observable — read a flag in a SwiftUI `body` and the view
+re-renders when **that** flag changes (and only that flag):
 
-> Server-side dependencies (must exist for full function): backend honors
-> `Idempotency-Key` on `/rpc/*`; App Attest enrollment/verification endpoints
-> (`/attest/challenge`, `/attest/enroll`) gated on the project's App Attest flag.
+```swift
+struct ContentView: View {
+    var body: some View {
+        if pb.flags.bool("new_checkout", default: false) {
+            NewCheckout()
+        } else {
+            LegacyCheckout()
+        }
+    }
+}
+```
+
+Also available: `isEnabled`, string / int / double / json accessors, the
+`changes` `AsyncStream`, and `onChange` for non-SwiftUI callers.
+
+### Analytics
+
+```swift
+await pb.analytics.capture("checkout_started", properties: ["plan": "pro"])
+await pb.analytics.screen("Home")
+// identify() is called automatically on sign-in
+```
+
+---
+
+## App Attest
+
+App Attest is **server-controlled, lazy** — there's no client flag to set. When
+your project enables it for a branch, the backend answers a request with
+`401 app_attest_required`; the SDK then enrolls the device and retries the
+request once, transparently. You don't write any attestation code.
+
+## Error handling
+
+Backend calls throw `BackendError` (`.notConfigured`, `.validation`,
+`.unauthorized`, `.forbidden`, `.notFound`, `.rateLimited`, `.server`,
+`.decode`, `.transport`, `.appAttest`). Auth throws `AuthError`. Endpoints that
+declare an `errors` map generate a typed error enum you can `catch` first,
+falling back to `catch let e as BackendError`.
+
+## Debug tracing (opt-in)
+
+The transport logs every request/response via `os.Logger` (subsystem
+`studio.palbase.sdk`, category `http`) with secrets redacted. It's **off by
+default**; flip it on per-run from the Xcode scheme:
+
+- environment variable `PALBASE_DEBUG=1`, or
+- launch argument `-PalbaseDebug YES`
+
+View in Console.app, or:
+
+```bash
+xcrun simctl spawn booted log stream --predicate 'subsystem == "studio.palbase.sdk"'
+```
+
+---
+
+Closed-source binary (XCFramework). Distributed from the private
+`palgroup/palbackend-ios-src` source repo.
