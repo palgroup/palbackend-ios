@@ -34,16 +34,15 @@ wire codegen into your Xcode project:
 palbase mobile setup ios --ref <your-project-ref>
 ```
 
-This adds an Xcode **Run Script** build phase that, on every build:
+This adds an Xcode **Run Script** build phase that, on every build, generates
+typed `pb.<namespace>.<operation>(...)` methods from your backend's endpoints.
 
-- generates typed `pb.<namespace>.<operation>(...)` methods from your backend's
-  endpoints, and
-- writes `PalbaseGenerated.json` (URL, API key, OAuth providers) into the app
-  bundle.
-
-The SDK reads that file lazily on the first `pb.*` access and configures itself.
-Because the script runs on every build, the URL / key / OAuth config always
-reflect what's in Studio.
+The runtime config (URL, API key, OAuth providers) is the per-env
+`Palbase-Info.plist`, emitted by `palbase mobile codegen ios --app <app-id>`
+(Debug → your dev env, Release → production). The SDK reads that plist lazily on
+the first `pb.*` access and configures itself — refusing to send if the running
+app's bundle id doesn't match the registered identifier. Because the script runs
+on every build, the URL / key / OAuth config always reflect what's in Studio.
 
 > To re-generate manually (e.g. after changing endpoints), run
 > `palbase mobile codegen ios`.
