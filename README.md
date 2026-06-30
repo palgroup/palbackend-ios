@@ -3,7 +3,8 @@
 `import Palbe` gives your app a single entry point, **`pb`** — typed backend
 calls, auth, feature flags, and analytics — wired to your Palbase project. No
 setup boilerplate, no transport to manage: the SDK self-configures from a
-generated contract file and refreshes it on every Xcode build.
+committed contract file, and an SPM build-tool plugin regenerates the typed
+client on every Xcode build — offline, no CLI on PATH.
 
 > Distributed as a closed-source binary (XCFramework). This is the public
 > distribution repo you add via SPM; the SDK source is private.
@@ -16,36 +17,59 @@ generated contract file and refreshes it on every Xcode build.
 
 ## Install
 
-Add the package in Xcode (**File ▸ Add Package Dependencies…**) or in your
-`Package.swift`:
+One package URL vends everything (Firebase-style): the `Palbe` binary SDK **and**
+the `PalbaseCodegen` build-tool plugin. Add it in Xcode (**File ▸ Add Package
+Dependencies…**) or in your `Package.swift`:
 
 ```swift
 .package(url: "https://github.com/palgroup/palbackend-ios", from: "0.5.0")
 ```
 
-Then add `Palbe` to your target and `import Palbe`.
+Add **two** products from this one package to your app target: the `Palbe`
+library (gives you `import Palbe` and `pb`) and the `PalbaseCodegen` build-tool
+plugin (generates the typed `pb.<ns>.<op>(...)` methods on every build). In Xcode,
+both are offered when you add the package; the plugin attaches under target ▸
+**Build Phases** ▸ **Run Build Tool Plug-ins**. In a SwiftPM target:
 
-## Configure (one command, then never again)
-
-You don't call `configure()` in code. Instead, run the Palbase CLI **once** to
-wire codegen into your Xcode project:
-
-```bash
-palbase mobile setup ios --ref <your-project-ref>
+```swift
+.target(
+    name: "MyApp",
+    dependencies: [.product(name: "Palbe", package: "palbackend-ios")],
+    plugins: [.plugin(name: "PalbaseCodegen", package: "palbackend-ios")]
+)
 ```
 
-This adds an Xcode **Run Script** build phase that, on every build, generates
-typed `pb.<namespace>.<operation>(...)` methods from your backend's endpoints.
+## Configure: fetch the spec once, the plugin does the rest
 
-The runtime config (URL, API key, OAuth providers) is the per-env
-`Palbase-Info.plist`, emitted by `palbase mobile codegen ios --app <app-id>`
-(Debug → your dev env, Release → production). The SDK reads that plist lazily on
-the first `pb.*` access and configures itself — refusing to send if the running
-app's bundle id doesn't match the registered identifier. Because the script runs
-on every build, the URL / key / OAuth config always reflect what's in Studio.
+You don't call `configure()` in code, and there is no live codegen at build time.
+The flow splits into a one-time **fetch** (online, CLI) and an automatic
+**generate** (offline, the plugin):
 
-> To re-generate manually (e.g. after changing endpoints), run
-> `palbase mobile codegen ios`.
+1. **Fetch the contract** with the Palbase CLI — run it once, and again whenever
+   you change endpoints or want fresh config:
+
+   ```bash
+   palbase pull-spec --ref <your-project-ref> --app <your-app-id>
+   ```
+
+   This writes two files into a committed `Palbase/` directory in your app:
+   `openapi.json` (your backend's API contract) and `palbase-config.json` (one
+   entry per registered bundle id: URL, publishable key, OAuth providers).
+   **Commit both** — they're the input the plugin builds from.
+
+2. **Build.** On every Xcode build the `PalbaseCodegen` plugin runs **offline**
+   over those committed files and generates the typed
+   `pb.<namespace>.<operation>(...)` methods plus a per-env `Palbase-Info.plist`.
+   No `palbase` CLI on PATH, no network in the build.
+
+At runtime the SDK reads `Palbase-Info.plist` from `Bundle.main` lazily on the
+first `pb.*` access and configures itself — picking the entry whose bundle id
+matches the running app, and refusing to send if none matches. Re-run
+`palbase pull-spec` to pull updated endpoints/config; the next build regenerates.
+
+> Flags: `palbase pull-spec --ref <ref> [--branch <branch>] [--app <app-id>]
+> [--out-dir ./Palbase]`. Without `--app` only `openapi.json` is written (types
+> only, no runtime config).
 
 ---
 
@@ -55,7 +79,7 @@ Everything hangs off the global `pb`.
 
 ### Typed endpoint calls (generated)
 
-The CLI generates one typed method per backend endpoint:
+The plugin generates one typed method per backend endpoint:
 
 ```swift
 import Palbe
@@ -69,8 +93,8 @@ errors when an endpoint declares them.
 
 ### Untyped escape hatch
 
-When you don't have (or don't want) codegen — prototyping, scripts — call an
-endpoint by its path:
+When you don't have (or don't want) generated methods — prototyping, scripts —
+call an endpoint by its path:
 
 ```swift
 struct CreateTodo: Encodable { let title: String }

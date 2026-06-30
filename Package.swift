@@ -22,12 +22,22 @@ let package = Package(
     ],
     products: [
         .library(name: "Palbe", targets: ["Palbe"]),
+        // Firebase-style: this one package URL also vends the codegen plugin.
+        .plugin(name: "PalbaseCodegen", targets: ["PalbaseCodegenPlugin"]),
+        .executable(name: "palbase-swiftgen", targets: ["palbase-swiftgen"]),
     ],
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.23.1/Palbe.xcframework.zip",
-            checksum: "42f2278c6975de7912fce06b14a15e286a79c7cec0471a1a910848aec0ba12fc"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.24.1/Palbe.xcframework.zip",
+            checksum: "32aae5e76f31cf042c75c79958d9dbde732b504e21400b51f1adc7bb4d388aad"
+        ),
+        .executableTarget(name: "palbase-swiftgen", path: "Sources/palbase-swiftgen"),
+        .plugin(
+            name: "PalbaseCodegenPlugin",
+            capability: .buildTool(),
+            dependencies: ["palbase-swiftgen"],
+            path: "Plugins/PalbaseCodegenPlugin"
         ),
     ],
     swiftLanguageModes: [.v6]
