@@ -63,6 +63,17 @@ enum CodegenError: Error, CustomStringConvertible {
     }
 }
 
+// intFromDouble truncates toward zero like Go's `int(float64)` WITHOUT trapping.
+// `Int(d)` aborts the process for NaN / ±inf / out-of-Int-range doubles; the Go
+// generator we ported clamps instead, so a malformed `status` (e.g. 1e20) must
+// not crash a consumer's Xcode build. NaN → 0; out-of-range → Int bounds.
+func intFromDouble(_ d: Double) -> Int {
+    if d.isNaN { return 0 }
+    if d >= Double(Int.max) { return Int.max }
+    if d <= Double(Int.min) { return Int.min }
+    return Int(d)
+}
+
 // parseOpenAPIForSwift parses the spec bytes into a sorted [SwiftOp].
 // Byte-for-byte port of swiftgen.go's parseOpenAPIForSwift.
 func parseOpenAPIForSwift(_ specBytes: Data) throws -> [SwiftOp] {
@@ -130,15 +141,19 @@ private func declaredErrors(_ op: [String: Any]) -> [SwiftErrorDef] {
         if code == "" || statusF == 0 {
             continue
         }
+        // Truncate toward zero like Go's `int(float64)`. Plain `Int(statusF)`
+        // TRAPS for out-of-range doubles (1e20, NaN) — Go clamps instead of
+        // panicking, so a garbage `status` must not abort the build. Match Go.
+        let status = intFromDouble(statusF)
         var def = SwiftErrorDef(
             name: name,
             code: code,
-            status: Int(statusF),
+            status: status,
             description: description,
             data: nil
         )
         if hasData {
-            def.data = errorDataSchema(responses, Int(statusF), code)
+            def.data = errorDataSchema(responses, status, code)
         }
         out.append(def)
     }

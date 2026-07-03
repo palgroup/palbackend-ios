@@ -49,7 +49,7 @@ The flow splits into a one-time **fetch** (online, CLI) and an automatic
    you change endpoints or want fresh config:
 
    ```bash
-   palbase pull-spec --ref <your-project-ref> --app <your-app-id>
+   palbase spec --ref <your-project-ref> --app <your-app-id>
    ```
 
    This writes two files into a committed `Palbase/` directory in your app:
@@ -65,9 +65,9 @@ The flow splits into a one-time **fetch** (online, CLI) and an automatic
 At runtime the SDK reads `Palbase-Info.plist` from `Bundle.main` lazily on the
 first `pb.*` access and configures itself — picking the entry whose bundle id
 matches the running app, and refusing to send if none matches. Re-run
-`palbase pull-spec` to pull updated endpoints/config; the next build regenerates.
+`palbase spec` to pull updated endpoints/config; the next build regenerates.
 
-> Flags: `palbase pull-spec --ref <ref> [--branch <branch>] [--app <app-id>]
+> Flags: `palbase spec --ref <ref> [--branch <branch>] [--app <app-id>]
 > [--out-dir ./Palbase]`. Without `--app` only `openapi.json` is written (types
 > only, no runtime config).
 

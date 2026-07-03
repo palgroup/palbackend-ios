@@ -2,7 +2,7 @@ import Foundation
 
 // Plist.swift — port of EmitIOSPlistByBundle + writeIOSConfigDict +
 // writeIOSOAuthDict (sdk/cli internal/apps/apps.go). Input is
-// palbase-config.json (written by `palbase pull-spec`):
+// palbase-config.json (written by `palbase spec`):
 //
 //   { "<bundleId>": { app_id, identifier, env_preset, base_url, api_key,
 //                     oauth?: { apple?: {enabled}, google?: {enabled, client_id, redirect_uri} } }, ... }

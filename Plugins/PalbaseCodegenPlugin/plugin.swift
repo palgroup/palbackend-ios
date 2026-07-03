@@ -6,7 +6,7 @@ import Foundation
 // over them at build time, emitting PalbaseGenerated.swift (+ Palbase-Info.plist)
 // into the plugin work dir. .buildCommand (not .prebuildCommand): wired into the
 // dependency graph so it re-runs ONLY when the spec changes. No network — the
-// plugin sandbox forbids it; the spec is fetched out-of-band by `palbase pull-spec`.
+// plugin sandbox forbids it; the spec is fetched out-of-band by `palbase spec`.
 
 @main
 struct PalbaseCodegenPlugin: BuildToolPlugin {

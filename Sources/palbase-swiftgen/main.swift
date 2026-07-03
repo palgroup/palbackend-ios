@@ -7,7 +7,7 @@ import Foundation
 //                    --out-swift <path> [--out-plist <path>]
 //
 // No network: every input is a local file. This is the build-time half of the
-// codegen split; `palbase pull-spec` produces the inputs out-of-band.
+// codegen split; `palbase spec` produces the inputs out-of-band.
 
 struct Args {
     var openapi: String?
