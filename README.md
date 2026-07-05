@@ -53,9 +53,9 @@ The flow splits into a one-time **fetch** (online, CLI) and an automatic
    ```
 
    This writes two files into a committed `Palbase/` directory in your app:
-   `openapi.json` (your backend's API contract) and `palbase-config.json` (one
-   entry per registered bundle id: URL, publishable key, OAuth providers).
-   **Commit both** — they're the input the plugin builds from.
+   `openapi.json` (your backend's API contract) and `palbase-config.json` (a
+   single flat config for the active environment: URL, publishable key, OAuth
+   providers). **Commit both** — they're the input the plugin builds from.
 
 2. **Build.** On every Xcode build the `PalbaseCodegen` plugin runs **offline**
    over those committed files and generates the typed
@@ -63,9 +63,12 @@ The flow splits into a one-time **fetch** (online, CLI) and an automatic
    No `palbase` CLI on PATH, no network in the build.
 
 At runtime the SDK reads `Palbase-Info.plist` from `Bundle.main` lazily on the
-first `pb.*` access and configures itself — picking the entry whose bundle id
-matches the running app, and refusing to send if none matches. Re-run
-`palbase spec` to pull updated endpoints/config; the next build regenerates.
+first `pb.*` access and configures itself from that single flat config. The
+running app's bundle id isn't in the config — the SDK reads it from `Bundle.main`
+at request time and sends it as the `X-Palbase-Bundle` header; the gateway
+matches it against the key's backend-registered binding (a mismatch is a
+server-side `403`, not a client-side refusal). Re-run `palbase spec` to pull
+updated endpoints/config; the next build regenerates.
 
 > Flags: `palbase spec --ref <ref> [--branch <branch>] [--app <app-id>]
 > [--out-dir ./Palbase]`. Without `--app` only `openapi.json` is written (types
