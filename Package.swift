@@ -29,8 +29,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.24.3/Palbe.xcframework.zip",
-            checksum: "712b4dc70074ede8f752e153da1417d6322033ee523e040e5b8945ce58754fc0"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.25.0/Palbe.xcframework.zip",
+            checksum: "393bd51ceba4bbaf6d2206131ebdcc05d10b6f04cd11c399ddac21b13e87da7d"
         ),
         .executableTarget(name: "palbase-swiftgen", path: "Sources/palbase-swiftgen"),
         .plugin(

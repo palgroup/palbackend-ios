@@ -1,56 +1,83 @@
 import Foundation
 
-// Plist.swift — emits Palbase-Info.plist from the single active-env
-// palbase-config.json (written by `palbase ios link` / `palbase spec`):
+// Plist.swift — emits Palbase-Info.plist from the fixed platform config slots
+// written by `palbase ios link` and `palbase macos link`:
 //
 //   { app_id, env_preset, base_url, api_key,
 //     oauth?: { apple?: {enabled}, google?: {enabled, client_id, redirect_uri} } }
 //
-// One flat env dict — the active target the CLI selected; no bundle-id→env map
-// and no identifier (the SDK sends X-Palbase-Bundle from Bundle.main at request
-// time). Output is a flat Palbase-Info.plist (fixed key order, indentation,
-// DOCTYPE). The SDK reads this plist from Bundle.main at first `pb.*` access.
+// Output is an `{ios?, macos?}` envelope whose values are platform config dicts. A
+// single available platform is valid; absent platforms stay absent. The format
+// uses fixed key order, indentation, and DOCTYPE.
 
 enum PlistError: Error, CustomStringConvertible {
     case invalidJSON(String)
     case noEnvironments
+    case invalidRequiredField(String)
     var description: String {
         switch self {
         case .invalidJSON(let m): return "palbase-config.json is not valid JSON: \(m)"
         case .noEnvironments: return "refusing to write plist: no registered environments to emit"
+        case .invalidRequiredField(let field):
+            return "palbase-config.json is missing nonempty required field \(field)"
         }
     }
 }
 
-// emitPlist renders palbase-config.json bytes into the plist string.
-func emitPlist(_ configBytes: Data) throws -> String {
+// Platform-envelope emitter. Each argument is the JSON from its matching
+// fixed slot. Missing one platform never borrows the other platform's config.
+func emitPlist(iosConfigBytes: Data?, macOSConfigBytes: Data?) throws -> String {
+    guard iosConfigBytes != nil || macOSConfigBytes != nil else {
+        throw PlistError.noEnvironments
+    }
+
+    let ios = try iosConfigBytes.map(decodeConfig)
+    let macOS = try macOSConfigBytes.map(decodeConfig)
+
+    var b = plistHeader
+    b += "<dict>\n"
+    if let ios {
+        b += "\t<key>ios</key>\n"
+        writeConfigDict(&b, ios, "\t")
+    }
+    if let macOS {
+        b += "\t<key>macos</key>\n"
+        writeConfigDict(&b, macOS, "\t")
+    }
+    b += "</dict>\n"
+    b += "</plist>\n"
+    return b
+}
+
+private let plistHeader = """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+
+"""
+
+private func decodeConfig(_ configBytes: Data) throws -> [String: Any] {
     let root: Any
     do {
         root = try JSONSerialization.jsonObject(with: configBytes)
     } catch {
         throw PlistError.invalidJSON(error.localizedDescription)
     }
-    // The config is a SINGLE flat env dict {app_id, env_preset, base_url, api_key,
-    // oauth?} — the one active target the CLI selected. No bundle-id→env outer map,
-    // and no identifier: the SDK sends X-Palbase-Bundle from Bundle.main at request
-    // time, so the config carries no bundle identity.
     guard let env = root as? [String: Any], !env.isEmpty else {
         throw PlistError.noEnvironments
     }
-
-    var b = ""
-    b += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-    b += "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-    b += "<plist version=\"1.0\">\n"
-    // The plist IS the single env dict (matching PalbaseAppConfig.load's flat decode).
-    writeConfigDict(&b, env, "")
-    b += "</plist>\n"
-    return b
+    for field in ["app_id", "base_url", "api_key"] {
+        guard let value = env[field] as? String,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PlistError.invalidRequiredField(field)
+        }
+    }
+    return env
 }
 
 private func writeConfigDict(_ b: inout String, _ env: [String: Any], _ indent: String) {
     b += indent + "<dict>\n"
-    // Fixed key order, matching writeIOSConfigDict exactly.
+    // Fixed key order for every platform slot.
     let fields: [(String, String)] = [
         ("app_id", str(env, "app_id")),
         ("env_preset", str(env, "env_preset")),

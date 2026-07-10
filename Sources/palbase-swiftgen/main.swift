@@ -1,17 +1,20 @@
 import Foundation
 
-// palbase-swiftgen — CLI entry. Parses a local OpenAPI 3.1 spec (+ a per-env
-// palbase-config.json) and writes PalbaseGenerated.swift and Palbase-Info.plist.
+// palbase-swiftgen — CLI entry. Parses a local OpenAPI 3.1 spec plus optional
+// fixed-platform configs and writes PalbaseGenerated.swift and Palbase-Info.plist.
 //
-//   palbase-swiftgen --openapi <path> [--config <path>] \
+//   palbase-swiftgen --openapi <path> \
+//                    [--ios-config <path>] [--macos-config <path>] \
 //                    --out-swift <path> [--out-plist <path>]
 //
 // No network: every input is a local file. This is the build-time half of the
-// codegen split; `palbase spec` produces the inputs out-of-band.
+// codegen split; Palbase CLI link writes shared OpenAPI and platform slots
+// out-of-band.
 
 struct Args {
     var openapi: String?
-    var config: String?
+    var iosConfig: String?
+    var macOSConfig: String?
     var outSwift: String?
     var outPlist: String?
 }
@@ -24,7 +27,8 @@ func parseArgs(_ argv: [String]) -> Args {
         let v = i + 1 < argv.count ? argv[i + 1] : nil
         switch k {
         case "--openapi": a.openapi = v; i += 2
-        case "--config": a.config = v; i += 2
+        case "--ios-config": a.iosConfig = v; i += 2
+        case "--macos-config": a.macOSConfig = v; i += 2
         case "--out-swift": a.outSwift = v; i += 2
         case "--out-plist": a.outPlist = v; i += 2
         default: i += 1
@@ -41,6 +45,10 @@ func die(_ msg: String) -> Never {
 let args = parseArgs(Array(CommandLine.arguments.dropFirst()))
 guard let openapiPath = args.openapi else { die("error: --openapi <path> required") }
 guard let outSwiftPath = args.outSwift else { die("error: --out-swift <path> required") }
+guard let outPlistPath = args.outPlist else { die("error: --out-plist <path> required") }
+guard args.iosConfig != nil || args.macOSConfig != nil else {
+    die("error: --ios-config or --macos-config required")
+}
 
 let specData: Data
 do {
@@ -64,14 +72,17 @@ do {
     die("error: cannot write swift to \(outSwiftPath): \(error)")
 }
 
-// Plist is per-env config, not derived from the spec. Emit only when both a
-// config input and an output path are given.
-if let configPath = args.config, let outPlistPath = args.outPlist {
-    do {
-        let configData = try Data(contentsOf: URL(fileURLWithPath: configPath))
-        let plist = try emitPlist(configData)
-        try plist.write(toFile: outPlistPath, atomically: true, encoding: .utf8)
-    } catch {
-        die("error: plist emit failed: \(error)")
+// Plist config is not derived from the spec. Platform slots produce one
+// envelope containing every available config.
+do {
+    let iosData = try args.iosConfig.map {
+        try Data(contentsOf: URL(fileURLWithPath: $0))
     }
+    let macOSData = try args.macOSConfig.map {
+        try Data(contentsOf: URL(fileURLWithPath: $0))
+    }
+    let plist = try emitPlist(iosConfigBytes: iosData, macOSConfigBytes: macOSData)
+    try plist.write(toFile: outPlistPath, atomically: true, encoding: .utf8)
+} catch {
+    die("error: plist emit failed: \(error)")
 }

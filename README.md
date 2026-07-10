@@ -1,4 +1,4 @@
-# Palbe — Palbase managed-backend SDK for iOS
+# Palbe — Palbase managed-backend SDK for iOS, iPadOS, and macOS
 
 `import Palbe` gives your app a single entry point, **`pb`** — typed backend
 calls, auth, feature flags, and analytics — wired to your Palbase project. No
@@ -9,7 +9,9 @@ client on every Xcode build — offline, no CLI on PATH.
 > Distributed as a closed-source binary (XCFramework). This is the public
 > distribution repo you add via SPM; the SDK source is private.
 
-- **Platforms:** iOS 18+, macOS 15+, tvOS 18+, watchOS 11+
+- **Platforms:** iOS/iPadOS 18+ (arm64 device and Simulator) and macOS 15+
+  (Apple Silicon/arm64). The distributed XCFramework does not include Mac
+  Catalyst, Intel macOS, tvOS, watchOS, or visionOS slices.
 - **Swift:** 6 (strict concurrency)
 - **Dependencies:** none (Foundation only)
 
@@ -45,34 +47,53 @@ You don't call `configure()` in code, and there is no live codegen at build time
 The flow splits into a one-time **fetch** (online, CLI) and an automatic
 **generate** (offline, the plugin):
 
-1. **Fetch the contract** with the Palbase CLI — run it once, and again whenever
-   you change endpoints or want fresh config:
+1. **Link each platform** with the Palbase CLI from your project root. Run the
+   command for every platform your project ships:
 
    ```bash
-   palbase spec --ref <your-project-ref> --app <your-app-id>
+   palbase ios link
+   palbase macos link
    ```
 
-   This writes two files into a committed `Palbase/` directory in your app:
-   `openapi.json` (your backend's API contract) and `palbase-config.json` (a
-   single flat config for the active environment: URL, publishable key, OAuth
-   providers). **Commit both** — they're the input the plugin builds from.
+   Each command prompts you to select a Palbase product. The first link for a
+   platform creates its app; later runs reuse the exact app ID persisted in the
+   local `.palbase/config.json`. They do not search for or reuse an arbitrary
+   remote app just because its metadata matches. The commands write one shared
+   API contract plus fixed platform config slots:
+
+   ```text
+   .palbase/
+     config.json
+     openapi.json
+     ios/palbase-config.json
+     macos/palbase-config.json
+   ```
+
+   `config.json` records the selected product and linked platform app IDs. Each link
+   updates only its own platform slot and preserves the other one. An iOS-only
+   project needs only the `ios` slot; a macOS-only project needs only `macos`.
+   The build plugin reads these fixed paths directly. It does not inspect Xcode
+   target names or use bundle IDs to choose a config.
+
+   Commit `.palbase/openapi.json` and the generated `.palbase/ios/` /
+   `.palbase/macos/` slot files. Keep `.palbase/config.json` local and
+   gitignored; it is CLI state, not a build input. The committed files need no
+   Xcode target membership, never clutter the project navigator, and let a fresh
+   checkout run codegen offline.
 
 2. **Build.** On every Xcode build the `PalbaseCodegen` plugin runs **offline**
    over those committed files and generates the typed
-   `pb.<namespace>.<operation>(...)` methods plus a per-env `Palbase-Info.plist`.
-   No `palbase` CLI on PATH, no network in the build.
+   `pb.<namespace>.<operation>(...)` methods plus one `Palbase-Info.plist`
+   containing the available `ios` / `macos` config slots. No `palbase` CLI on
+   PATH, no network in the build.
 
 At runtime the SDK reads `Palbase-Info.plist` from `Bundle.main` lazily on the
-first `pb.*` access and configures itself from that single flat config. The
-running app's bundle id isn't in the config — the SDK reads it from `Bundle.main`
-at request time and sends it as the `X-Palbase-Bundle` header; the gateway
-matches it against the key's backend-registered binding (a mismatch is a
-server-side `403`, not a client-side refusal). Re-run `palbase spec` to pull
-updated endpoints/config; the next build regenerates.
-
-> Flags: `palbase spec --ref <ref> [--branch <branch>] [--app <app-id>]
-> [--out-dir ./Palbase]`. Without `--app` only `openapi.json` is written (types
-> only, no runtime config).
+first `pb.*` access. A macOS build reads only `macos`; an iOS/iPadOS build reads
+only `ios`. A missing current-platform slot fails configuration instead of using
+the other platform's values. Missing or empty `app_id`, `base_url`, or `api_key`
+also fails configuration. `app_id` plus the publishable API key identify the
+linked app. `X-Palbase-Bundle` carries the host bundle ID only as runtime
+metadata. Re-run the matching link command to refresh; the next build regenerates.
 
 ---
 
@@ -165,7 +186,7 @@ struct ContentView: View {
         if pb.flags.bool("new_checkout", default: false) {
             NewCheckout()
         } else {
-            LegacyCheckout()
+            ClassicCheckout()
         }
     }
 }
@@ -186,10 +207,11 @@ await pb.analytics.screen("Home")
 
 ## App Attest
 
-App Attest is **server-controlled, lazy** — there's no client flag to set. When
-your project enables it for a branch, the backend answers a request with
-`401 app_attest_required`; the SDK then enrolls the device and retries the
-request once, transparently. You don't write any attestation code.
+On native iOS/iPadOS, App Attest is **server-controlled and lazy** — there's no
+client flag to set. When an app/environment binding enables it, the backend
+answers a request with `401 app_attest_required`; the SDK enrolls the device and
+retries the request once, transparently. macOS never
+attempts App Attest. You don't write any attestation code.
 
 ## Error handling
 
