@@ -29,14 +29,13 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.25.0/Palbe.xcframework.zip",
-            checksum: "393bd51ceba4bbaf6d2206131ebdcc05d10b6f04cd11c399ddac21b13e87da7d"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.25.1/Palbe.xcframework.zip",
+            checksum: "e17325dc17c7d040805c149fb76f85eff2982fe62223985661de4e25a748f657"
         ),
         .executableTarget(name: "palbase-swiftgen", path: "Sources/palbase-swiftgen"),
         .plugin(
             name: "PalbaseCodegenPlugin",
             capability: .buildTool(),
-            dependencies: ["palbase-swiftgen"],
             path: "Plugins/PalbaseCodegenPlugin"
         ),
     ],
