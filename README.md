@@ -13,7 +13,8 @@ client on every Xcode build — offline, no CLI on PATH.
   (Apple Silicon/arm64). The distributed XCFramework does not include Mac
   Catalyst, Intel macOS, tvOS, watchOS, or visionOS slices.
 - **Swift:** 6 (strict concurrency)
-- **Dependencies:** none (Foundation only)
+- **Public API:** `Palbe`'s exported API is Foundation-only. The product also
+  carries the pinned binary runtime needed for voice/video calls.
 
 ---
 
@@ -24,7 +25,7 @@ the `PalbaseCodegen` build-tool plugin. Add it in Xcode (**File ▸ Add Package
 Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.5.0")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.26.1")
 ```
 
 Add **two** products from this one package to your app target: the `Palbe`
@@ -40,6 +41,40 @@ both are offered when you add the package; the plugin attaches under target ▸
     plugins: [.plugin(name: "PalbaseCodegen", package: "palbackend-ios")]
 )
 ```
+
+The `Palbe` product already includes its media runtime as flat SwiftPM binary
+targets so Xcode signs them for device builds. Do not add LiveKit, a second calls
+product, or an `enable()` call. SwiftPM necessarily makes the packaging modules
+`LiveKitWebRTC` and `RustLiveKitUniFFI` visible to a target that links this
+multi-target product; they are unsupported implementation artifacts, not Palbe
+API, and may change without compatibility guarantees. Do not import them.
+
+The exact third-party license and NOTICE texts ship both inside
+`Palbe.framework` and in [`ThirdPartyLicenses`](ThirdPartyLicenses/README.md).
+
+### Headless agents and CI
+
+Xcode normally asks a human to **Trust & Enable** the build-tool plugin on its
+first run. A terminal-only agent or CI worker must add
+`-skipPackagePluginValidation` to every `xcodebuild` invocation instead:
+
+```bash
+xcodebuild \
+  -project MyApp.xcodeproj \
+  -scheme MyApp \
+  -destination 'generic/platform=iOS Simulator' \
+  -skipPackagePluginValidation \
+  build
+```
+
+Before using the flag, verify that `Package.resolved` resolves
+`palbackend-ios` from the official
+`https://github.com/palgroup/palbackend-ios` package at the expected reviewed
+version/revision. The flag bypasses Xcode's interactive approval for every
+package plugin in that build; it does not skip Palbase codegen. Do not modify
+Xcode's private trust database, set a global validation bypass, or add
+`-skipPackageSignatureValidation`. Interactive Xcode users should keep the
+normal one-time **Trust & Enable** flow.
 
 ## Configure: fetch the spec once, the plugin does the rest
 
@@ -202,6 +237,23 @@ await pb.analytics.capture("checkout_started", properties: ["plan": "pro"])
 await pb.analytics.screen("Home")
 // identify() is called automatically on sign-in
 ```
+
+### Voice/video calls
+
+Calls are part of `Palbe`; no extra product or registration step is required:
+
+```swift
+let call = try await chat.startCall(media: .audioVideo)
+
+if let incoming = pb.messaging.incomingCall {
+    let answered = try await incoming.accept()
+    // Bind answered.state / answered.participants in SwiftUI.
+}
+```
+
+Add `NSMicrophoneUsageDescription` and, for video, `NSCameraUsageDescription` to
+the app's Info.plist. A call becomes `.active` only after the real SFU transport
+connects; there is no signaling-only fallback that reports a false connection.
 
 ---
 

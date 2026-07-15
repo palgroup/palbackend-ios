@@ -3,7 +3,7 @@ import Foundation
 // Plist.swift — emits Palbase-Info.plist from the fixed platform config slots
 // written by `palbase ios link` and `palbase macos link`:
 //
-//   { app_id, env_preset, base_url, api_key,
+//   { app_id, environment_ref, base_url, api_key,
 //     oauth?: { apple?: {enabled}, google?: {enabled, client_id, redirect_uri} } }
 //
 // Output is an `{ios?, macos?}` envelope whose values are platform config dicts. A
@@ -66,7 +66,7 @@ private func decodeConfig(_ configBytes: Data) throws -> [String: Any] {
     guard let env = root as? [String: Any], !env.isEmpty else {
         throw PlistError.noEnvironments
     }
-    for field in ["app_id", "base_url", "api_key"] {
+    for field in ["app_id", "environment_ref", "base_url", "api_key"] {
         guard let value = env[field] as? String,
               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw PlistError.invalidRequiredField(field)
@@ -80,7 +80,7 @@ private func writeConfigDict(_ b: inout String, _ env: [String: Any], _ indent: 
     // Fixed key order for every platform slot.
     let fields: [(String, String)] = [
         ("app_id", str(env, "app_id")),
-        ("env_preset", str(env, "env_preset")),
+        ("environment_ref", str(env, "environment_ref")),
         ("base_url", str(env, "base_url")),
         ("api_key", str(env, "api_key")),
     ]

@@ -19,6 +19,7 @@ func emitSwift(_ ops: [SwiftOp]) -> String {
         "realtime",
         "notifications",
         "perf",
+        "messaging",
     ]
     var usable: [SwiftOp] = []
     var swiftSkippedNS: [String] = []

@@ -15,13 +15,11 @@ import PackageDescription
 let package = Package(
     name: "Palbe",
     platforms: [
-        .iOS(.v15),
-        .macOS(.v13),
-        .tvOS(.v15),
-        .watchOS(.v8)
+        .iOS(.v18),
+        .macOS(.v15),
     ],
     products: [
-        .library(name: "Palbe", targets: ["Palbe"]),
+        .library(name: "Palbe", targets: ["Palbe", "LiveKitWebRTC", "RustLiveKitUniFFI"]),
         // Firebase-style: this one package URL also vends the codegen plugin.
         .plugin(name: "PalbaseCodegen", targets: ["PalbaseCodegenPlugin"]),
         .executable(name: "palbase-swiftgen", targets: ["palbase-swiftgen"]),
@@ -29,8 +27,18 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.25.1/Palbe.xcframework.zip",
-            checksum: "e17325dc17c7d040805c149fb76f85eff2982fe62223985661de4e25a748f657"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.26.1/Palbe.xcframework.zip",
+            checksum: "9ba6bacce40cb190de9d5795667d524e2b8221fca525e24ff5e5290b0ffff1ec"
+        ),
+        .binaryTarget(
+            name: "RustLiveKitUniFFI",
+            url: "https://github.com/livekit/livekit-uniffi-xcframework/releases/download/0.0.6/RustLiveKitUniFFI.xcframework.zip",
+            checksum: "0d3f2ce159a224c728f8b131068d53bbf9b13d968cda0edc68a6a2290f2651ed"
+        ),
+        .binaryTarget(
+            name: "LiveKitWebRTC",
+            url: "https://github.com/livekit/webrtc-xcframework/releases/download/144.7559.10/LiveKitWebRTC.xcframework.zip",
+            checksum: "a0f0d5e80b2a25fa6d9e8d235b90e426ec44ca872e3331c6c3d03d2fccc8a2e6"
         ),
         .executableTarget(name: "palbase-swiftgen", path: "Sources/palbase-swiftgen"),
         .plugin(
