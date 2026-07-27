@@ -339,11 +339,43 @@ private func schemaFromContent(_ content: Any?) -> SwiftSchema? {
     if schema["$ref"] != nil {
         return nil
     }
-    return parseSwiftSchema(schema)
+    return parseSwiftSchema(schema, root: schema)
 }
 
 private func parseSwiftSchema(_ s: [String: Any]) -> SwiftSchema {
+    parseSwiftSchema(s, root: s)
+}
+
+// `root` is the schema the walk started from: zod emits a repeated subschema
+// once and points at it with a document-relative `$ref` ("#/properties/
+// selectedContext"), so resolving one means walking that JSON Pointer from the
+// enclosing schema. `depth` stops a self-referential spec from recursing
+// forever — a ref chain that deep is a spec bug, and `any` is the honest answer.
+private func parseSwiftSchema(_ s0: [String: Any], root: [String: Any], depth: Int = 0) -> SwiftSchema {
+    var s = s0
+    if let target = resolveSchemaRef(s, root: root), depth < 16 {
+        s = target
+    } else if s["$ref"] != nil {
+        return SwiftSchema(kind: "any", nullable: false, props: [], elem: nil, enumVals: [])
+    }
     var nullable = (s["nullable"] as? Bool) ?? false
+
+    // `anyOf: [<schema>, {"type":"null"}]` is what zod's `.nullable()` emits for
+    // everything that isn't a scalar (objects, arrays, enums) — the scalar case
+    // arrives as `type: ["string","null"]` and is handled below. Collapse the
+    // pair into "that schema, nullable" instead of degrading the whole field to
+    // `AnyCodableValue`: a nullable array-of-objects (a Home feed module's
+    // `cards`) must stay typed, or every consumer hand-writes the DTO the
+    // generator was supposed to give them.
+    if let variants = (s["anyOf"] as? [Any]) ?? (s["oneOf"] as? [Any]) {
+        let objects = variants.compactMap { $0 as? [String: Any] }
+        let nonNull = objects.filter { !isNullSchema($0) }
+        if objects.count == variants.count, nonNull.count == 1, objects.count > nonNull.count {
+            var inner = parseSwiftSchema(nonNull[0], root: root, depth: depth + 1)
+            inner.nullable = true
+            return inner
+        }
+    }
 
     if let enumRaw = s["enum"] as? [Any] {
         var cases: [String] = []
@@ -388,22 +420,22 @@ private func parseSwiftSchema(_ s: [String: Any]) -> SwiftSchema {
     case "array":
         let elem: SwiftSchema
         if let items = s["items"] as? [String: Any] {
-            elem = parseSwiftSchema(items)
+            elem = parseSwiftSchema(items, root: root, depth: depth + 1)
         } else {
             elem = SwiftSchema(kind: "any", nullable: false, props: [], elem: nil, enumVals: [])
         }
         return SwiftSchema(kind: "array", nullable: nullable, props: [], elem: Box(elem), enumVals: [])
     case "object":
-        return parseSwiftObject(s, nullable)
+        return parseSwiftObject(s, nullable, root: root, depth: depth)
     default:
         if s["properties"] != nil {
-            return parseSwiftObject(s, nullable)
+            return parseSwiftObject(s, nullable, root: root, depth: depth)
         }
         return SwiftSchema(kind: "any", nullable: nullable, props: [], elem: nil, enumVals: [])
     }
 }
 
-private func parseSwiftObject(_ s: [String: Any], _ nullable: Bool) -> SwiftSchema {
+private func parseSwiftObject(_ s: [String: Any], _ nullable: Bool, root: [String: Any], depth: Int) -> SwiftSchema {
     let propsRaw = (s["properties"] as? [String: Any]) ?? [:]
     var requiredSet = Set<String>()
     if let reqRaw = s["required"] as? [Any] {
@@ -422,11 +454,44 @@ private func parseSwiftObject(_ s: [String: Any], _ nullable: Bool) -> SwiftSche
     for name in names {
         let ps: SwiftSchema
         if let pm = propsRaw[name] as? [String: Any] {
-            ps = parseSwiftSchema(pm)
+            ps = parseSwiftSchema(pm, root: root, depth: depth + 1)
         } else {
             ps = SwiftSchema(kind: "any", nullable: false, props: [], elem: nil, enumVals: [])
         }
         props.append(SwiftProp(name: name, schema: ps, required: requiredSet.contains(name)))
     }
     return SwiftSchema(kind: "object", nullable: nullable, props: props, elem: nil, enumVals: [])
+}
+
+/// True for the `{"type":"null"}` variant zod emits inside `anyOf` for a
+/// `.nullable()` object/array/enum.
+private func isNullSchema(_ s: [String: Any]) -> Bool {
+    if let t = s["type"] as? String { return t == "null" }
+    if let t = s["type"] as? [Any] {
+        let strs = t.compactMap { $0 as? String }
+        return strs == ["null"]
+    }
+    return false
+}
+
+/// Resolve a document-relative `$ref` ("#/properties/selectedContext") against
+/// the schema the walk started from. Returns nil when there is no `$ref`, when
+/// the pointer is external (another file / `#/components/...` the CLI does not
+/// carry), or when it does not land on an object.
+private func resolveSchemaRef(_ s: [String: Any], root: [String: Any]) -> [String: Any]? {
+    guard let ref = s["$ref"] as? String, ref.hasPrefix("#/") else { return nil }
+    var node: Any = root
+    for rawPart in ref.dropFirst(2).split(separator: "/") {
+        let part = String(rawPart)
+            .replacingOccurrences(of: "~1", with: "/")
+            .replacingOccurrences(of: "~0", with: "~")
+        if let dict = node as? [String: Any], let next = dict[part] {
+            node = next
+        } else if let arr = node as? [Any], let i = Int(part), arr.indices.contains(i) {
+            node = arr[i]
+        } else {
+            return nil
+        }
+    }
+    return node as? [String: Any]
 }

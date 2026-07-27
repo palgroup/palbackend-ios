@@ -20,6 +20,8 @@ func emitSwift(_ ops: [SwiftOp]) -> String {
         "notifications",
         "perf",
         "messaging",
+        "purchases",
+        "debug",
     ]
     var usable: [SwiftOp] = []
     var swiftSkippedNS: [String] = []
@@ -56,7 +58,8 @@ func emitSwift(_ ops: [SwiftOp]) -> String {
     return b
 }
 
-private func swiftStringLiteral(_ s: String) -> String {
+// `internal`: shared with the purchases-catalog emitter (Purchases.swift).
+func swiftStringLiteral(_ s: String) -> String {
     // Mirrors Go's strconv.Quote for the printable-ASCII inputs the emitter
     // sees (wire keys / codes / path segments): double-quoted with backslash
     // escapes for the special characters.
@@ -82,7 +85,9 @@ private func opSegments(_ opID: String) -> [String] {
 }
 
 private func typeNameOf(_ s: String) -> String { return sanitize(s, true) }
-private func identOf(_ s: String) -> String { return escapeKeyword(sanitize(s, false)) }
+// `internal` (not private): the purchases-catalog emitter in Purchases.swift needs the
+// same identifier rules — one sanitizer, not two.
+func identOf(_ s: String) -> String { return escapeKeyword(sanitize(s, false)) }
 
 // typePrefix builds the PascalCase concatenation of all op-id segments.
 private func typePrefix(_ opID: String) -> String {
@@ -150,7 +155,7 @@ private func escapeKeyword(_ id: String) -> String {
     return id
 }
 
-private func unbacktick(_ s: String) -> String { return s.replacingOccurrences(of: "`", with: "") }
+func unbacktick(_ s: String) -> String { return s.replacingOccurrences(of: "`", with: "") }
 
 // snakeCaseRoundTrips reports whether the SDK's `.convertFromSnakeCase` decoder
 // would map the wire key back to exactly `ident` (and `.convertToSnakeCase`

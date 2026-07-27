@@ -5,6 +5,7 @@ import Foundation
 //
 //   palbase-swiftgen --openapi <path> \
 //                    [--ios-config <path>] [--macos-config <path>] \
+//                    [--purchases-catalog <path>] \
 //                    --out-swift <path> [--out-plist <path>]
 //
 // No network: every input is a local file. This is the build-time half of the
@@ -17,6 +18,9 @@ struct Args {
     var macOSConfig: String?
     var outSwift: String?
     var outPlist: String?
+    // Optional: the purchases catalog manifest. Absent = no purchases section, so a
+    // project that sells nothing gets byte-identical output to before.
+    var purchasesCatalog: String?
 }
 
 func parseArgs(_ argv: [String]) -> Args {
@@ -31,6 +35,7 @@ func parseArgs(_ argv: [String]) -> Args {
         case "--macos-config": a.macOSConfig = v; i += 2
         case "--out-swift": a.outSwift = v; i += 2
         case "--out-plist": a.outPlist = v; i += 2
+        case "--purchases-catalog": a.purchasesCatalog = v; i += 2
         default: i += 1
         }
     }
@@ -65,7 +70,20 @@ do {
     die("error: \(error)")
 }
 
-let swift = emitSwift(ops)
+var swift = emitSwift(ops)
+
+// Purchases catalog → typed key constants, appended to the same generated file so
+// the app has one committed codegen artifact.
+if let catalogPath = args.purchasesCatalog {
+    do {
+        swift += try emitPurchasesCatalog(
+            Data(contentsOf: URL(fileURLWithPath: catalogPath))
+        )
+    } catch {
+        die("error: cannot emit purchases catalog from \(catalogPath): \(error)")
+    }
+}
+
 do {
     try swift.write(toFile: outSwiftPath, atomically: true, encoding: .utf8)
 } catch {
