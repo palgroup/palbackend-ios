@@ -20,15 +20,12 @@ let package = Package(
     ],
     products: [
         .library(name: "Palbe", targets: ["Palbe", "LiveKitWebRTC", "RustLiveKitUniFFI"]),
-        // Firebase-style: this one package URL also vends the codegen plugin.
-        .plugin(name: "PalbaseCodegen", targets: ["PalbaseCodegenPlugin"]),
-        .executable(name: "palbase-swiftgen", targets: ["palbase-swiftgen"]),
     ],
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.27.0/Palbe.xcframework.zip",
-            checksum: "b9b188a59f6c85c454b4892f9033fe439f7375f357e67609d86d9d104fcdfae3"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.28.0/Palbe.xcframework.zip",
+            checksum: "9d66d07e025662c9442408d6fe2358088a19caa977c3dd7ab6d0780d3a5e416f"
         ),
         .binaryTarget(
             name: "RustLiveKitUniFFI",
@@ -41,11 +38,6 @@ let package = Package(
             checksum: "07c5caf718058af3c528dcabd257298c40e5a8527e4fb9f47c48336ba5899853"
         ),
         .executableTarget(name: "palbase-swiftgen", path: "Sources/palbase-swiftgen"),
-        .plugin(
-            name: "PalbaseCodegenPlugin",
-            capability: .buildTool(),
-            path: "Plugins/PalbaseCodegenPlugin"
-        ),
     ],
     swiftLanguageModes: [.v6]
 )
