@@ -21,11 +21,11 @@ visible in source and in `git diff`, not conjured during a build.
 
 ## Install
 
-One package URL, one product. Add it in Xcode (**File ▸ Add Package
-Dependencies…**) or in your `Package.swift`:
+One package URL, two products (`Palbe` and `PalbePurchases`). Add it in Xcode
+(**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.29.0")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.30.0")
 ```
 
 Add the `Palbe` library to your app target — that is the entire wiring. There is
@@ -48,6 +48,24 @@ API, and may change without compatibility guarantees. Do not import them.
 
 The exact third-party license and NOTICE texts ship both inside
 `Palbe.framework` and in [`ThirdPartyLicenses`](ThirdPartyLicenses/README.md).
+
+### In-app purchases: the `PalbePurchases` product
+
+Subscriptions and one-off purchases live in a **second product of the same
+package** — `import PalbePurchases`, entry point `purchases`:
+
+```swift
+.target(
+    name: "MyApp",
+    dependencies: [.product(name: "PalbePurchases", package: "palbackend-ios")]
+)
+```
+
+It is separate on purpose. `Palbe` links the media runtime for voice/video, and
+an app that only sells subscriptions must not carry ~29MB of binary it never
+calls. `PalbePurchases` has **no dependencies at all** — Foundation, StoreKit,
+URLSession — and links neither LiveKit nor `Palbe`. Add both products if your
+app needs both; adding only this one keeps the media runtime out of your bundle.
 
 ### Headless agents and CI
 

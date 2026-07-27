@@ -20,12 +20,18 @@ let package = Package(
     ],
     products: [
         .library(name: "Palbe", targets: ["Palbe", "LiveKitWebRTC", "RustLiveKitUniFFI"]),
+        .library(name: "PalbePurchases", targets: ["PalbePurchases"]),
     ],
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.29.1/Palbe.xcframework.zip",
-            checksum: "b3c8a34e58ae82cb4d721b694bd23e4584fdc58a0fa45f8c780617097cbe5261"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.30.0/Palbe.xcframework.zip",
+            checksum: "34d89aa883b725a014d4f8db9c050803e669490c114b16974783bca47803ade1"
+        ),
+        .binaryTarget(
+            name: "PalbePurchases",
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.30.0/PalbePurchases.xcframework.zip",
+            checksum: "0046cc3a74b2ac41383f5acb951fee89b22e900cf5ed1fe5345806774e7da7bf"
         ),
         .binaryTarget(
             name: "RustLiveKitUniFFI",
