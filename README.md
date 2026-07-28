@@ -25,7 +25,7 @@ One package URL, two products (`Palbe` and `PalbePurchases`). Add it in Xcode
 (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.31.0")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.32.0")
 ```
 
 Add the `Palbe` library to your app target — that is the entire wiring. There is
