@@ -3,7 +3,7 @@ import Foundation
 // Plist.swift — emits Palbase-Info.plist from the fixed platform config slots
 // written by `palbase ios link` and `palbase macos link`:
 //
-//   { app_id, environment_ref, kind, base_url, api_key,
+//   { app_id, environment_ref, base_url, api_key,
 //     oauth?: { apple?: {enabled}, google?: {enabled, client_id, redirect_uri} },
 //     purchases?: { base_url, publishable_key } }
 //
@@ -79,14 +79,13 @@ private func decodeConfig(_ configBytes: Data) throws -> [String: Any] {
 private func writeConfigDict(_ b: inout String, _ env: [String: Any], _ indent: String) {
     b += indent + "<dict>\n"
     // Fixed key order for every platform slot.
-    // `kind` rides along so the SDK can tell a production Environment from a
-    // dev one at runtime WITHOUT parsing the ref (refs are opaque). The in-app
-    // console uses it to render nothing in production. Absent in an older config
-    // artifact → emitted empty, which the SDK reads as "not production".
+    // No `kind`: the SDK no longer decides anything from the Environment's
+    // classification. The in-app console is gated on a server-controlled user
+    // flag instead, so a developer can open it for ONE user on a shipped build
+    // — a decision the plist cannot carry and a build cannot make.
     let fields: [(String, String)] = [
         ("app_id", str(env, "app_id")),
         ("environment_ref", str(env, "environment_ref")),
-        ("kind", str(env, "kind")),
         ("base_url", str(env, "base_url")),
         ("api_key", str(env, "api_key")),
     ]
