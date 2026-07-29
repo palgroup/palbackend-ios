@@ -25,13 +25,13 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.33.1/Palbe.xcframework.zip",
-            checksum: "2ae303cbfd3f2b8a61b3cf17d7336e69d7693a26b389ea00a16eb9f3adacdf8d"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.34.0/Palbe.xcframework.zip",
+            checksum: "4164399adf1a17c634bfd29897a54bbede4735de494dd0600cf5fb7e5c03aeaf"
         ),
         .binaryTarget(
             name: "PalbePurchases",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.33.1/PalbePurchases.xcframework.zip",
-            checksum: "b9bfa7164432c2acd77b8b0431b3ccf661e95916ac863a5ac82912ad96a3d143"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.34.0/PalbePurchases.xcframework.zip",
+            checksum: "68cf425aeca317533f9365e4a3ebef62eff362d6d09ea2a4e9f04912f95095ac"
         ),
         .binaryTarget(
             name: "RustLiveKitUniFFI",
