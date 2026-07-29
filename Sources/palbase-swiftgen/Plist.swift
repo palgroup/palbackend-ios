@@ -4,7 +4,8 @@ import Foundation
 // written by `palbase ios link` and `palbase macos link`:
 //
 //   { app_id, environment_ref, kind, base_url, api_key,
-//     oauth?: { apple?: {enabled}, google?: {enabled, client_id, redirect_uri} } }
+//     oauth?: { apple?: {enabled}, google?: {enabled, client_id, redirect_uri} },
+//     purchases?: { base_url, publishable_key } }
 //
 // Output is an `{ios?, macos?}` envelope whose values are platform config dicts. A
 // single available platform is valid; absent platforms stay absent. The format
@@ -94,6 +95,33 @@ private func writeConfigDict(_ b: inout String, _ env: [String: Any], _ indent: 
         b += indent + "\t<string>" + plistEscape(val) + "</string>\n"
     }
     writeOAuthDict(&b, env["oauth"] as? [String: Any], indent + "\t")
+    writePurchasesDict(&b, env["purchases"] as? [String: Any], indent + "\t")
+    b += indent + "</dict>\n"
+}
+
+// The palstore endpoint `PalbePurchases` boots from — a DIFFERENT service from the
+// `base_url` above, with its own key. It rides in this plist rather than a file of its
+// own so an app has one generated config, not two that can disagree about which
+// environment it is: the platform writes both halves of the slot in one commit.
+//
+// `publishable_key` is a `pk_`, and shipping it inside the binary is the design, not a
+// leak (SPEC-purchases-v1 §5: everything it authorises is scoped to the caller's own
+// subject and moves no money). The tenant's `sk_` is its backend's and must never reach
+// this file — `configure` rejects one loudly if it ever does.
+private func writePurchasesDict(_ b: inout String, _ purchases: [String: Any]?, _ indent: String) {
+    guard let purchases else { return }
+    let fields = [("base_url", str(purchases, "base_url")), ("publishable_key", str(purchases, "publishable_key"))]
+    // Both or neither. A half-written block reaches the app as a `configure` that throws
+    // `invalidConfiguration` on the first `purchases.*` call — strictly worse than an
+    // absent block, which reads as "this app sells nothing" and is the common case.
+    guard fields.allSatisfy({ !$0.1.isEmpty }) else { return }
+
+    b += indent + "<key>purchases</key>\n"
+    b += indent + "<dict>\n"
+    for (key, val) in fields {
+        b += indent + "\t<key>" + plistEscape(key) + "</key>\n"
+        b += indent + "\t<string>" + plistEscape(val) + "</string>\n"
+    }
     b += indent + "</dict>\n"
 }
 
