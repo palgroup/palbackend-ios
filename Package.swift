@@ -19,19 +19,31 @@ let package = Package(
         .macOS(.v15),
     ],
     products: [
-        .library(name: "Palbe", targets: ["Palbe", "LiveKitWebRTC", "RustLiveKitUniFFI"]),
+        .library(name: "Palbe", targets: ["Palbe"]),
+        .library(name: "PalbeMessaging", targets: ["Palbe", "PalbeMessaging"]),
+        .library(name: "PalbeCall", targets: ["Palbe", "PalbeMessaging", "PalbeCall", "LiveKitWebRTC", "RustLiveKitUniFFI"]),
         .library(name: "PalbePurchases", targets: ["PalbePurchases"]),
     ],
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.36.0/Palbe.xcframework.zip",
-            checksum: "cc6012b24f1aed01f375c26c4e0fec28b2178ee325f82ad2fb543adc9c527d01"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.37.0/Palbe.xcframework.zip",
+            checksum: "a8f1bd6a6261a412d7a8f4b91a9273058e65d7b729d76e865871e6afdf1d0fd1"
+        ),
+        .binaryTarget(
+            name: "PalbeMessaging",
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.37.0/PalbeMessaging.xcframework.zip",
+            checksum: "243e96843f836bf35938d081d2ae5099d39d3b5d48cc5db7fe05c38a988d828e"
+        ),
+        .binaryTarget(
+            name: "PalbeCall",
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.37.0/PalbeCall.xcframework.zip",
+            checksum: "bbc60527143722d4afde295ae296f81c96e09826c6dc1d7ef6eff1ac1bb40cef"
         ),
         .binaryTarget(
             name: "PalbePurchases",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.36.0/PalbePurchases.xcframework.zip",
-            checksum: "a2b9c5501695534786aa392f4a9ab5f6fc3d41b7ee1a71c64743e1da77bce33c"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.37.0/PalbePurchases.xcframework.zip",
+            checksum: "36adc4b9f8d0da0fd8d456f0f97f728b357a464afc22180b41b7c03d02aab05b"
         ),
         .binaryTarget(
             name: "RustLiveKitUniFFI",
