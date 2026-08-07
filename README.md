@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.38.1")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.39.0")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -109,6 +109,49 @@ Nothing extra to do. There is no build-tool plugin, so `xcodebuild` needs no
 `-skipPackagePluginValidation` and Xcode never asks a human to **Trust & Enable**
 anything. The generated client is committed, so a fresh clone builds offline —
 CI does not need the `palbase` CLI, network access, or a codegen step.
+
+## Export compliance
+
+App Store Connect asks, on every upload, whether your app uses non-exempt
+encryption. The answer depends on **which Palbe product you link**, because it
+depends on whether any non-Apple cryptography ends up in your binary.
+
+| Product | `ITSAppUsesNonExemptEncryption` | Why |
+|---|---|---|
+| `Palbe` | `false` | Apple-provided cryptography only — URLSession/TLS, Keychain, CryptoKit, Security.framework. No package dependencies. |
+| `PalbeMessaging` | `true` | Embeds an MLS implementation with its own key exchange. |
+| `PalbeCall` | `true` | Embeds LiveKit/WebRTC, which carries its own DTLS-SRTP stack. |
+| `PalbePurchases` | `false` | Foundation + StoreKit only. |
+
+An app answers `false` only if **every** product it links qualifies, so linking
+`PalbeMessaging` or `PalbeCall` makes the answer `true` for the whole app.
+
+Answering `true` means App Store Connect asks follow-up questions and, in most
+cases, expects a self-classification report plus an annual report to the US
+Bureau of Industry and Security. If you distribute in France, its separate
+encryption declaration applies as well.
+
+You can put the answer in your app's `Info.plist` so the questionnaire stops
+appearing on every upload:
+
+```xml
+<key>ITSAppUsesNonExemptEncryption</key>
+<false/>
+```
+
+That is **your app's** `Info.plist`. Palbase cannot set it for you:
+`Palbase-Info.plist` is the generated configuration artifact this SDK reads, not
+your app's property list.
+
+Keeping `Palbe` in the `false` column is a deliberate constraint on this SDK, not
+a happy accident — all cryptography in the core product is CryptoKit and
+Security.framework, and `scripts/crypto-provenance-check.sh` fails the release if
+a non-Apple crypto library is ever linked into it. It is the same reasoning as the
+LiveKit split: an app that never sends a message should not inherit a heavier
+compliance answer than it needs.
+
+This is not legal advice. It is a factual description of what each binary
+contains, which is what the question is asking about.
 
 ## Configure: the CLI fetches the contract and generates the client
 
