@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.40.1")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.41.0")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
