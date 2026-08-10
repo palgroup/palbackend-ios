@@ -211,7 +211,7 @@ private func emitTypeTree(_ ops: [SwiftOp]) -> String {
     for op in ops {
         var emitted = false
         if let input = op.input {
-            lines.append(contentsOf: topLevelDeclLines(requestTypeName(op.operationID), input))
+            lines.append(contentsOf: topLevelDeclLines(requestTypeName(op.operationID), input, requestSide: true))
             emitted = true
         }
         if let output = op.output {
@@ -374,13 +374,13 @@ private func uploadEndpointStructLines(_ op: SwiftOp) -> [String] {
 }
 
 // topLevelDeclLines renders one top-level type for an operation side.
-private func topLevelDeclLines(_ name: String, _ s: SwiftSchema) -> [String] {
+private func topLevelDeclLines(_ name: String, _ s: SwiftSchema, requestSide: Bool = false) -> [String] {
     if s.kind == "object" {
-        return structLines(name, s.props, 0)
+        return structLines(name, s.props, 0, requestSide: requestSide)
     }
     if s.kind == "array", let elem = s.elem?.value, elem.kind == "object", elem.props.count > 0 {
         let itemName = name + "Item"
-        var lines = structLines(itemName, elem.props, 0)
+        var lines = structLines(itemName, elem.props, 0, requestSide: requestSide)
         lines.append("")
         lines.append("public typealias " + name + " = [" + itemName + "]")
         return lines
@@ -500,7 +500,7 @@ private func topLevelErrorEnumLines(_ enumName: String, _ errs: [SwiftErrorDef])
     return lines
 }
 
-private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int) -> [String] {
+private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int, requestSide: Bool = false) -> [String] {
     var lines: [String] = []
     lines.append(indent(depth) + "public nonisolated struct " + name + ": Codable, Sendable {")
     let fd = depth + 1
@@ -524,7 +524,15 @@ private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int) -> 
         }
         seenIdent[ident] = p.name
         let optional = !p.required || p.schema.nullable
-        let (typ, nested) = fieldType(p.schema, p.name, fd)
+        var (typ, nested) = fieldType(p.schema, p.name, fd, requestSide: requestSide)
+        // A REQUEST field that is both optional and nullable carries three
+        // intentions — omit, clear, set — and a plain Optional carries two.
+        // Wrapping keeps "clear" expressible; see Nullable in GeneratedSupport.
+        // Responses need no wrapper: nothing is omitted-vs-null from the caller's
+        // side there, so they keep the plain Optional they always had.
+        if requestSide, !p.required, p.schema.nullable {
+            typ = "Nullable<" + typ + ">"
+        }
         lines.append(contentsOf: nested)
         fields.append(Field(ident: ident, key: p.name, typ: typ, optional: optional))
     }
@@ -572,7 +580,7 @@ private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int) -> 
     return lines
 }
 
-private func fieldType(_ s: SwiftSchema, _ fieldName: String, _ depth: Int) -> (String, [String]) {
+private func fieldType(_ s: SwiftSchema, _ fieldName: String, _ depth: Int, requestSide: Bool = false) -> (String, [String]) {
     switch s.kind {
     case "string":
         return ("String", [])
@@ -593,11 +601,11 @@ private func fieldType(_ s: SwiftSchema, _ fieldName: String, _ depth: Int) -> (
         decl.append(indent(depth) + "}")
         return (typeName, decl)
     case "array":
-        let (elemType, nested) = fieldType(s.elem!.value, fieldName + "Item", depth)
+        let (elemType, nested) = fieldType(s.elem!.value, fieldName + "Item", depth, requestSide: requestSide)
         return ("[" + elemType + "]", nested)
     case "object":
         let typeName = typeNameOf(fieldName)
-        return (typeName, structLines(typeName, s.props, depth))
+        return (typeName, structLines(typeName, s.props, depth, requestSide: requestSide))
     default:
         return ("AnyCodableValue", [])
     }
