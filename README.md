@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.47.0")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.48.0")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -193,7 +193,9 @@ One CLI command does both halves — **fetch** (online) and **generate**
 
 2. **The same command generates.** Right after writing the contract, the CLI
    emits the typed `pb.<namespace>.<operation>(...)` methods plus one
-   `Palbase-Info.plist` (carrying the available `ios` / `macos` slots) into:
+   `Palbase-Info.plist` (carrying the available `ios` / `macos` slots, each with
+   every environment of the project — see "Which environment a build talks to")
+   into:
 
    ```text
    Palbase/Generated/
@@ -215,11 +217,37 @@ One CLI command does both halves — **fetch** (online) and **generate**
 At runtime the SDK reads `Palbase-Info.plist` from `Bundle.main` lazily on the
 first `pb.*` access. A macOS build reads only `macos`; an iOS/iPadOS build reads
 only `ios`. A missing current-platform slot fails configuration instead of using
-the other platform's values. Missing or empty `app_id`, `base_url`, or `api_key`
-also fails configuration. `app_id` plus the publishable API key identify the
+the other platform's values. `app_id` plus the publishable API key identify the
 linked app. `X-Palbase-Bundle` carries the host bundle ID only as runtime
 metadata. Re-run `palbase spec` (or the matching link command) to refresh both the
 contract and the generated client.
+
+### Which environment a build talks to
+
+One plist carries EVERY environment of the project — production, dev, and the
+`local` stack on your machine — so two build configurations of the same app can
+point at two of them at once, with nothing to re-run in between. Each build picks
+one **by name**:
+
+1. `PALBASE_ENV` in **your app's own `Info.plist`** — normally
+   `<key>PALBASE_ENV</key><string>$(PALBASE_ENV)</string>`, with the value set per
+   build configuration in an xcconfig. This is the compile-time answer and it wins.
+2. the `PALBASE_ENV` **process variable** — an Xcode scheme override or a
+   simulator run, for when you want to switch without rebuilding the setting in.
+3. otherwise the plist's `default_environment`.
+
+A blank value counts as unset (an `Info.plist` that expands `$(PALBASE_ENV)` while
+no xcconfig defines it ships an empty string, and that must mean "use the
+default"). A name the plist does not carry fails configuration with an error that
+lists the names it does carry — it never quietly falls back to another
+environment. An environment whose API key is empty — a `local` stack that was not
+running when the plist was written — fails with an error naming `palbase start`
+and `palbase spec` rather than sending a keyless request.
+
+`http://127.0.0.1:<port>` needs **no** App Transport Security exception in your
+app: measured on iOS 26.5, ATS does not apply to loopback, while plain HTTP to a
+public host is still refused. (And an ATS key in `Palbase-Info.plist` would do
+nothing — ATS is read only from your app's own `Info.plist`.)
 
 ---
 
