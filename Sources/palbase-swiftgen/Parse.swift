@@ -360,6 +360,23 @@ private func parseSwiftSchema(_ s0: [String: Any], root: [String: Any], depth: I
     }
     var nullable = (s["nullable"] as? Bool) ?? false
 
+    // `type: [<something>, "null"]` MEANS NULLABLE, AND IT IS READ HERE — BEFORE
+    // the enum branch below.
+    //
+    // It used to be read only in the scalar `switch` at the bottom, which the
+    // enum branch returns before ever reaching. So a nullable ENUM
+    // (`{"type":["string","null"], "enum":[…]}` — what `z.enum(…).nullable()`
+    // emits) came out NON-optional, and a null in the response could not decode
+    // at all. Measured 2026-08-24 against centauri: `rejectionReason` on a
+    // verification that was never rejected is null on the wire, and the emitted
+    // client declared it required — the screen could not be typed, let alone
+    // decoded.
+    if let typeArray = s["type"] as? [Any] {
+        for v in typeArray where (v as? String) == "null" {
+            nullable = true
+        }
+    }
+
     // `anyOf: [<schema>, {"type":"null"}]` is what zod's `.nullable()` emits for
     // everything that isn't a scalar (objects, arrays, enums) — the scalar case
     // arrives as `type: ["string","null"]` and is handled below. Collapse the
@@ -393,7 +410,8 @@ private func parseSwiftSchema(_ s0: [String: Any], root: [String: Any], depth: I
         }
     }
 
-    // type may be a string or an array (`["string","null"]`).
+    // type may be a string or an array (`["string","null"]`). The null marker is
+    // already folded into `nullable` above; this loop is here for `typ`.
     var typ = (s["type"] as? String) ?? ""
     if typ == "" {
         if let arr = s["type"] as? [Any] {
