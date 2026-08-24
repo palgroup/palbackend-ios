@@ -27,23 +27,23 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.48.1/Palbe.xcframework.zip",
-            checksum: "2b356dd08f74c8cc62eac065d8cb45765409d27ca715de6b94e4f780ce7a03bf"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.48.2/Palbe.xcframework.zip",
+            checksum: "dbbd92842a9b8c0ef09ebd4ece8a5ae356e4a9f7818fb3b175f81e6e35bfd39d"
         ),
         .binaryTarget(
             name: "PalbeMessaging",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.48.1/PalbeMessaging.xcframework.zip",
-            checksum: "184dd7efd28b57d270395bf4c6b9a2462b914e8b53c049cc8a597bebe0245caf"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.48.2/PalbeMessaging.xcframework.zip",
+            checksum: "1b34d2b966eb65a6c95c106ae9bb2d3cb70f61225fb9b271ca88f31e215bd130"
         ),
         .binaryTarget(
             name: "PalbeCall",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.48.1/PalbeCall.xcframework.zip",
-            checksum: "02384bf87cd90391d365f41839f1ba008a6873d1e0ea9aeb4893c65ce3684fb6"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.48.2/PalbeCall.xcframework.zip",
+            checksum: "4d97dd1d22a70189dd9659c980755c6ed7e2e5e7e70a4e66337fcf9693e9e638"
         ),
         .binaryTarget(
             name: "PalbePurchases",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.48.1/PalbePurchases.xcframework.zip",
-            checksum: "f5d0f2e202721aabf306ad5ecab84d5bb2d6342c09cf0f1c4f15a52644db2692"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.48.2/PalbePurchases.xcframework.zip",
+            checksum: "b32f8ed2beed18ecce160c649421348bdce58b04b27b28e64441a561bcdf3d0b"
         ),
         .binaryTarget(
             name: "RustLiveKitUniFFI",
@@ -52,8 +52,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "LiveKitWebRTC",
-            url: "https://github.com/livekit/webrtc-xcframework/releases/download/144.7559.08/LiveKitWebRTC.xcframework.zip",
-            checksum: "aaffd15670e71d735b1d1ff9454459cc25416f10a157b5c0f49932a18198fa33"
+            url: "https://github.com/livekit/webrtc-xcframework/releases/download/144.7559.11/LiveKitWebRTC.xcframework.zip",
+            checksum: "07c5caf718058af3c528dcabd257298c40e5a8527e4fb9f47c48336ba5899853"
         ),
         .executableTarget(name: "palbase-swiftgen", path: "Sources/palbase-swiftgen"),
     ],
