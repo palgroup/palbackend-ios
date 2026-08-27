@@ -27,23 +27,23 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.51.1/Palbe.xcframework.zip",
-            checksum: "19abb0ea7c538e16aa885995de119afc846f4d7a63fdcf6fe37979ebb3fed1a0"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.52.0/Palbe.xcframework.zip",
+            checksum: "7991f5661a9bb8aa4598581c6fdf52817b20777084ed8e210a3ea7b5a2480f13"
         ),
         .binaryTarget(
             name: "PalbeMessaging",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.51.1/PalbeMessaging.xcframework.zip",
-            checksum: "4966ac870cf321e85b86a18cbcb6ca58f9be141d3813de2437a30a7e1d3b2cc6"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.52.0/PalbeMessaging.xcframework.zip",
+            checksum: "5d9c5f4548baf4631b8bdd269bc03158c5a3c72b990fdb154b15d517fe30517b"
         ),
         .binaryTarget(
             name: "PalbeCall",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.51.1/PalbeCall.xcframework.zip",
-            checksum: "20cfe460f7f7f92175374e9a3ee541eb0573cd2e792a184843f1434a662917a7"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.52.0/PalbeCall.xcframework.zip",
+            checksum: "a4de0aec2d07854c25f9a918e47621a73ffe3a6083e9583435b68e8002225533"
         ),
         .binaryTarget(
             name: "PalbePurchases",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.51.1/PalbePurchases.xcframework.zip",
-            checksum: "43db11f5ae5a71e45ff452fb2ec3ece70ff2ad6927b5e756c02a6eb87779cdae"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.52.0/PalbePurchases.xcframework.zip",
+            checksum: "9544e74b0f8546a95d38ed013cd16194182300ffd028dbc383009f0e31c953cc"
         ),
         .binaryTarget(
             name: "RustLiveKitUniFFI",
