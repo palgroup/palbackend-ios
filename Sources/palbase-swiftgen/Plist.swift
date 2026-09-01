@@ -178,6 +178,22 @@ private func writeEnvironmentDict(_ b: inout String, _ env: [String: Any], _ ind
         b += indent + "\t<key>" + plistEscape(key) + "</key>\n"
         b += indent + "\t<string>" + plistEscape(val) + "</string>\n"
     }
+    // OPTIONAL, and written only when the link found one.
+    //
+    // The sealing chain is verified root-first, so an app hosted by somebody
+    // other than the fleet has to be TOLD which root its stack hangs from — it
+    // cannot derive one and must not fetch one from the server it is checking.
+    // Until this line existed the SDK read `sealed_root` and nothing anywhere
+    // wrote it, so every self-hosted app fell back to roots that could not
+    // verify its stack and the sealing layer was inert for all of them.
+    //
+    // Absent when the stack has no chain: the SDK then keeps its compiled-in
+    // roots, which is the correct behaviour for a fleet app. An empty string
+    // here would read as a configured root and fail at the first sealed request.
+    if let sealedRoot = env["sealed_root"] as? String, !sealedRoot.isEmpty {
+        b += indent + "\t<key>sealed_root</key>\n"
+        b += indent + "\t<string>" + plistEscape(sealedRoot) + "</string>\n"
+    }
     writeOAuthDict(&b, env["oauth"] as? [String: Any], indent + "\t")
     writePurchasesDict(&b, env["purchases"] as? [String: Any], indent + "\t")
     b += indent + "</dict>\n"

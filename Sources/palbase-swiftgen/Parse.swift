@@ -32,6 +32,29 @@ struct SwiftErrorDef {
     var data: SwiftSchema?    // nil when the error carries no payload
 }
 
+/// One `@Room` declaration, read from the document-level `x-palbase-room`.
+///
+/// Rooms are the one thing in the spec that is NOT an operation: no verb, no
+/// path, no request/response pair. They are server code a device talks to over
+/// the realtime socket, so the generator emits a typed handle instead of an
+/// endpoint.
+struct SwiftRoom {
+    /// The channel pattern, colon-separated: `ai:{sessionId}`.
+    var pattern: String
+    /// The `{param}` names, in the order they appear in the pattern. They become
+    /// stored properties so the app never interpolates a topic by hand.
+    var params: [String]
+    /// Events the SERVER sends, by name.
+    var events: [SwiftRoomPayload]
+    /// Messages a CLIENT may send, by name.
+    var messages: [SwiftRoomPayload]
+}
+
+struct SwiftRoomPayload {
+    var name: String
+    var schema: SwiftSchema
+}
+
 struct SwiftOp {
     var operationID: String
     var method: String
@@ -43,6 +66,11 @@ struct SwiftOp {
     var query: SwiftSchema?
     var errors: [SwiftErrorDef]
     var upload: SwiftUpload?
+    /// True when the operation carries `x-palbase-sse` — a streaming response
+    /// whose body is a sequence of frames, not one JSON document. Defaulted so
+    /// every existing construction site keeps compiling and keeps meaning
+    /// "ordinary op".
+    var sse: Bool = false
 }
 
 // Box wraps a value type to allow recursion (Swift structs can't contain
@@ -113,7 +141,8 @@ func parseOpenAPIForSwift(_ specBytes: Data) throws -> [SwiftOp] {
                 headers: headerSchema(op),
                 query: querySchema(op),
                 errors: declaredErrors(op),
-                upload: declaredUpload(op)
+                upload: declaredUpload(op),
+                sse: declaredSse(op)
             ))
         }
     }
@@ -175,6 +204,18 @@ private func declaredUpload(_ op: [String: Any]) -> SwiftUpload? {
         return nil
     }
     return SwiftUpload(bucket: bucket, pathTemplate: pathTemplate)
+}
+
+// declaredSse reports whether the operation carries `x-palbase-sse`.
+//
+// The extension's PRESENCE is the whole signal — it carries no fields today, by
+// design, so that a later setting arrives as a field on a marker every consumer
+// already reads rather than as a second marker some consumer misses. A document
+// without it describes a streaming route as a plain POST, and the client
+// generated from that reads the body once instead of iterating frames: it
+// compiles, it runs, and it is simply wrong.
+private func declaredSse(_ op: [String: Any]) -> Bool {
+    return op["x-palbase-sse"] != nil
 }
 
 // errorDataSchema pulls the data-payload schema out of a declared error's
@@ -510,6 +551,93 @@ private func resolveSchemaRef(_ s: [String: Any], root: [String: Any]) -> [Strin
         } else {
             return nil
         }
+    }
+    return node as? [String: Any]
+}
+
+// MARK: - rooms
+
+/// parseRoomsForSwift reads the DOCUMENT-level `x-palbase-room` extension.
+///
+/// Document-level and not operation-level, and that is not a detail: a room has
+/// no verb and no path to hang an extension off. A generator that looks for it
+/// beside `x-palbase-sse` finds nothing, emits nothing, and reports success —
+/// which is why the placement is pinned by a test.
+///
+/// A malformed entry is SKIPPED rather than thrown on, matching how
+/// `declaredUpload` treats a half-written extension: a spec this generator
+/// cannot fully read must still produce a working client for the parts it can.
+func parseRoomsForSwift(_ specBytes: Data) throws -> [SwiftRoom] {
+    let parsed: Any
+    do {
+        parsed = try JSONSerialization.jsonObject(with: specBytes)
+    } catch {
+        throw CodegenError.invalidJSON(error.localizedDescription)
+    }
+    guard let root = parsed as? [String: Any] else {
+        throw CodegenError.invalidJSON("root is not an object")
+    }
+    guard let ext = root["x-palbase-room"] as? [String: Any] else {
+        return [] // a project with no rooms — the common case, and not an error
+    }
+
+    var out: [SwiftRoom] = []
+    for (pattern, raw) in ext {
+        guard let decl = raw as? [String: Any] else { continue }
+        let events = roomPayloads(decl["events"], root: root)
+        let messages = roomPayloads(decl["messages"], root: root)
+        out.append(SwiftRoom(
+            pattern: pattern,
+            params: roomParamNames(pattern),
+            events: events,
+            messages: messages
+        ))
+    }
+    // Deterministic order: a generator whose output depends on dictionary
+    // iteration produces a different file on every run and no golden can hold it.
+    out.sort { $0.pattern < $1.pattern }
+    return out
+}
+
+/// The `{param}` names in a colon-separated pattern, in order.
+private func roomParamNames(_ pattern: String) -> [String] {
+    var names: [String] = []
+    for seg in pattern.split(separator: ":", omittingEmptySubsequences: false) {
+        let s = String(seg)
+        guard s.hasPrefix("{"), s.hasSuffix("}"), s.count > 2 else { continue }
+        names.append(String(s.dropFirst().dropLast()))
+    }
+    return names
+}
+
+/// Resolve each `{name: {$ref}}` entry into a named schema.
+///
+/// The refs point at `#/components/schemas/Room_<slug>_<name>` — registered by
+/// the backend SDK precisely so the payload travels as a real component instead
+/// of being inlined twice.
+private func roomPayloads(_ raw: Any?, root: [String: Any]) -> [SwiftRoomPayload] {
+    guard let map = raw as? [String: Any] else { return [] }
+    var out: [SwiftRoomPayload] = []
+    for (name, entry) in map {
+        guard let dict = entry as? [String: Any] else { continue }
+        // Resolve against the ROOT document: unlike an operation's inline schema,
+        // a room's payload always lives in components.
+        let target = resolveRoomRef(dict, root: root) ?? dict
+        out.append(SwiftRoomPayload(name: name, schema: parseSwiftSchema(target, root: target)))
+    }
+    out.sort { $0.name < $1.name }
+    return out
+}
+
+private func resolveRoomRef(_ s: [String: Any], root: [String: Any]) -> [String: Any]? {
+    guard let ref = s["$ref"] as? String, ref.hasPrefix("#/") else { return nil }
+    var node: Any = root
+    for rawPart in ref.dropFirst(2).split(separator: "/") {
+        let part = String(rawPart)
+            .replacingOccurrences(of: "~1", with: "/")
+            .replacingOccurrences(of: "~0", with: "~")
+        guard let dict = node as? [String: Any], let next = dict[part] else { return nil }
+        node = next
     }
     return node as? [String: Any]
 }

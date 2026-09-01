@@ -155,7 +155,7 @@ if let job = plan.swiftJob {
         die("error: \(error)")
     }
 
-    var swift = emitSwift(ops)
+    var swift = emitSwift(ops, rooms: try parseRoomsForSwift(specData))
 
     // Purchases catalog → typed key constants, appended to the same generated file so
     // the app has one committed codegen artifact.

@@ -8,7 +8,7 @@ import Foundation
 //
 // The Swift file is types + endpoint methods only; the runtime config
 // (url / apiKey / oauth) ships separately as the per-env Palbase-Info.plist.
-func emitSwift(_ ops: [SwiftOp]) -> String {
+func emitSwift(_ ops: [SwiftOp], rooms: [SwiftRoom] = []) -> String {
     // Reserved namespaces on `pb`: SDK-owned surfaces. An endpoint whose top
     // segment collides with one would shadow it, so skip those endpoints and
     // emit a visible comment so the developer knows what was dropped.
@@ -55,7 +55,149 @@ func emitSwift(_ ops: [SwiftOp]) -> String {
     }
     b += emitNamespaceTree(usable)
 
+    // Rooms last, and only when there are any: a project that never declared one
+    // must get the file it got before (NFR-004).
+    if !rooms.isEmpty {
+        b += "\n// MARK: - Rooms (@Room)\n\n"
+        for room in rooms {
+            b += emitRoom(room) + "\n"
+        }
+    }
+
     return b
+}
+
+// MARK: - rooms
+
+/// The Swift type name for a room: `ai:{sessionId}` → `AiSessionIdRoom`.
+private func roomTypeName(_ pattern: String) -> String {
+    return typeNameOf(pattern) + "Room"
+}
+
+/// Emit one room as a type an app can hold, with its events and messages as
+/// enums whose payloads are real structs.
+///
+/// The shape is chosen so that **an app writes no strings and no types of its
+/// own**: the pattern, the event names and the message names all live here, and
+/// the only thing the app supplies is the `{param}` values. `decode` and
+/// `encode` are generated for the same reason — without them the app is back to
+/// matching event names by hand, which is the DX this replaces.
+private func emitRoom(_ room: SwiftRoom) -> String {
+    let name = roomTypeName(room.pattern)
+    var lines: [String] = []
+    lines.append("public nonisolated struct " + name + ": PBRoom {")
+
+    // The pattern is the room's identity and the ONE place the raw string lives.
+    lines.append(indent(1) + "public static let pattern = " + swiftStringLiteral(room.pattern))
+
+    for p in room.params {
+        lines.append(indent(1) + "public let " + identOf(p) + ": String")
+    }
+    if room.params.isEmpty {
+        lines.append(indent(1) + "public init() {}")
+    } else {
+        let params = room.params.map { identOf($0) + ": String" }.joined(separator: ", ")
+        lines.append(indent(1) + "public init(" + params + ") {")
+        for p in room.params {
+            lines.append(indent(2) + "self." + unbacktick(identOf(p)) + " = " + identOf(p))
+        }
+        lines.append(indent(1) + "}")
+    }
+
+    // The topic, built by the compiler. An app that has to interpolate this by
+    // hand can typo it, and a typo'd topic is a room that silently never fills.
+    lines.append(indent(1) + "public var topic: String {")
+    var expr = ""
+    for seg in room.pattern.split(separator: ":", omittingEmptySubsequences: false) {
+        let s = String(seg)
+        if !expr.isEmpty { expr += ":" }
+        if s.hasPrefix("{"), s.hasSuffix("}"), s.count > 2 {
+            expr += "\\(" + identOf(String(s.dropFirst().dropLast())) + ")"
+        } else {
+            expr += s
+        }
+    }
+    lines.append(indent(2) + "return \"" + expr + "\"")
+    lines.append(indent(1) + "}")
+    lines.append("")
+
+    // ── events (server → device) ──
+    for e in room.events {
+        lines.append(contentsOf: structLines(roomPayloadTypeName(e.name, "Event"), e.schema.props, 1))
+    }
+    lines.append(indent(1) + "public enum Event: Sendable {")
+    for e in room.events {
+        lines.append(indent(2) + "case " + identOf(e.name) + "(" + roomPayloadTypeName(e.name, "Event") + ")")
+    }
+    if room.events.isEmpty {
+        // An empty Swift enum can never be instantiated, which is the honest
+        // model of a room that sends nothing — but it must still compile.
+        lines.append(indent(2) + "// this room declares no events")
+    }
+    lines.append(indent(1) + "}")
+    lines.append("")
+
+    // The names RoomHandle subscribes to. Without this the handle would have to
+    // guess, and a room's events are exactly the thing it must not guess at.
+    lines.append(indent(1) + "public static let eventNames: [String] = [" +
+        room.events.map { swiftStringLiteral($0.name) }.joined(separator: ", ") + "]")
+    lines.append("")
+    lines.append(indent(1) + "public static func decode(event: String, data: Data) throws -> Event? {")
+    if room.events.isEmpty {
+        lines.append(indent(2) + "_ = (event, data)")
+        lines.append(indent(2) + "return nil")
+    } else {
+        lines.append(indent(2) + "switch event {")
+        for e in room.events {
+            lines.append(indent(2) + "case " + swiftStringLiteral(e.name) + ":")
+            lines.append(indent(3) + "return .\(identOf(e.name))(try JSONDecoder.palbaseDefault.decode(" +
+                roomPayloadTypeName(e.name, "Event") + ".self, from: data))")
+        }
+        lines.append(indent(2) + "default:")
+        // An unknown event is a SERVER that moved ahead of this client, not an
+        // error: nil lets the app ignore it instead of tearing the room down.
+        lines.append(indent(3) + "return nil")
+        lines.append(indent(2) + "}")
+    }
+    lines.append(indent(1) + "}")
+    lines.append("")
+
+    // ── messages (device → server) ──
+    for m in room.messages {
+        // requestSide: these go OUT, so the snake_case gate applies — an
+        // uppercase wire key would be silently dropped by the SDK's encoder.
+        lines.append(contentsOf: structLines(roomPayloadTypeName(m.name, "Message"), m.schema.props, 1, requestSide: true))
+    }
+    lines.append(indent(1) + "public enum Send: Sendable {")
+    for m in room.messages {
+        lines.append(indent(2) + "case " + identOf(m.name) + "(" + roomPayloadTypeName(m.name, "Message") + ")")
+    }
+    if room.messages.isEmpty {
+        lines.append(indent(2) + "// this room accepts no client messages")
+    }
+    lines.append(indent(1) + "}")
+    lines.append("")
+
+    lines.append(indent(1) + "public static func encode(_ message: Send) throws -> (event: String, data: Data) {")
+    if room.messages.isEmpty {
+        lines.append(indent(2) + "_ = message")
+        lines.append(indent(2) + "throw PBRoomError.noMessagesDeclared(pattern)")
+    } else {
+        lines.append(indent(2) + "switch message {")
+        for m in room.messages {
+            lines.append(indent(2) + "case .\(identOf(m.name))(let value):")
+            lines.append(indent(3) + "return (" + swiftStringLiteral(m.name) +
+                ", try JSONEncoder.palbaseDefault.encode(value))")
+        }
+        lines.append(indent(2) + "}")
+    }
+    lines.append(indent(1) + "}")
+    lines.append("}")
+    return lines.joined(separator: "\n") + "\n"
+}
+
+private func roomPayloadTypeName(_ name: String, _ suffix: String) -> String {
+    return typeNameOf(name) + suffix
 }
 
 // `internal`: shared with the purchases-catalog emitter (Purchases.swift).
@@ -156,6 +298,49 @@ private func escapeKeyword(_ id: String) -> String {
 }
 
 func unbacktick(_ s: String) -> String { return s.replacingOccurrences(of: "`", with: "") }
+
+// encoderCanProduce reports whether the SDK's `.convertToSnakeCase` ENCODER can
+// emit this wire key at all.
+//
+// It cannot, ever, if the key carries an uppercase letter: that strategy
+// lowercases everything it touches, so no Swift identifier — and no explicit
+// CodingKey either — can come out as `gapMs`. MEASURED 2026-08-30 rather than
+// assumed: with the strategy set, `gapMs` encodes to `gap_ms` both with and
+// without `enum CodingKeys: String, CodingKey { case gapMs = "gapMs" }`. The
+// strategy is applied to the CodingKey's stringValue, which is why the usual
+// escape hatch is not one here.
+//
+// This is deliberately the CONSERVATIVE half of the question. Exotic keys with
+// doubled or interior underscores can also fail to round-trip, and those slip
+// through — but every key this rejects is genuinely unreachable, so there are no
+// false alarms. `snakeCaseRoundTrips` above answers the DECODE direction, where
+// `ident == key` is enough; on the encode side it is not, and conflating the two
+// is exactly how a request field came to be silently dropped.
+private func encoderCanProduce(_ key: String) -> Bool {
+    return !key.contains(where: { $0.isUppercase })
+}
+
+// snakeHint renders the obvious rename so the message can show it rather than
+// describe it. Not Foundation's algorithm — a suggestion, not a contract.
+private func snakeHint(_ key: String) -> String {
+    var out = ""
+    for ch in key {
+        if ch.isUppercase {
+            if !out.isEmpty && !out.hasSuffix("_") { out.append("_") }
+            out.append(Character(ch.lowercased()))
+        } else {
+            out.append(ch)
+        }
+    }
+    return out
+}
+
+// swiftIdentLiteralSafe keeps a wire key readable inside a message without
+// letting a quote in it break the literal that carries it.
+private func swiftIdentLiteralSafe(_ s: String) -> String {
+    return "`" + s.replacingOccurrences(of: "`", with: "") + "`"
+}
+
 
 // snakeCaseRoundTrips reports whether the SDK's `.convertFromSnakeCase` decoder
 // would map the wire key back to exactly `ident` (and `.convertToSnakeCase`
@@ -296,7 +481,16 @@ private func endpointStructLines(_ op: SwiftOp) -> [String] {
     let hasBody = op.output != nil
 
     var lines: [String] = []
-    if hasBody {
+    if op.sse {
+        // An @Sse op adopts PBSseEndpoint and names its frame type `Element`,
+        // not `Response`. The distinction is the whole point: a `Response`
+        // endpoint reads the body ONCE, which on a streaming route means
+        // blocking until the stream ends and then decoding the concatenation of
+        // every frame as one document. Everything BELOW this (stored inputs,
+        // pbRequest) is identical — only the contract differs.
+        lines.append("public nonisolated struct " + name + ": PBSseEndpoint {")
+        lines.append(indent(1) + "public typealias Element = " + responseTypeName(op.operationID))
+    } else if hasBody {
         lines.append("public nonisolated struct " + name + ": PBEndpoint {")
         lines.append(indent(1) + "public typealias Response = " + responseTypeName(op.operationID))
     } else {
@@ -523,6 +717,20 @@ private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int, req
             continue
         }
         seenIdent[ident] = p.name
+        // A request field the encoder cannot address is worse than a missing
+        // one: the call compiles, runs, and the server quietly applies its
+        // default. Refusing to COMPILE is the only honest option — a comment
+        // would be read after the bug, not before it.
+        if requestSide, !encoderCanProduce(p.name) {
+            lines.append(indent(fd) + "#error(" + swiftStringLiteral(
+                "palbase: this client cannot send the field " + swiftIdentLiteralSafe(p.name) +
+                " of " + name + ". The SDK encodes request bodies with " +
+                ".convertToSnakeCase, so an uppercase letter in a wire key can never be " +
+                "produced — the field would be silently dropped and the server would apply " +
+                "its default. Rename it to snake_case in the backend schema (for example " +
+                snakeHint(p.name) + ") and re-run `palbase link`.") + ")")
+            continue
+        }
         let optional = !p.required || p.schema.nullable
         var (typ, nested) = fieldType(p.schema, p.name, fd, requestSide: requestSide)
         // A REQUEST field that is both optional and nullable carries three
@@ -770,7 +978,19 @@ private func renderNSNode(_ node: NSNode) -> String {
             inputParam = "_ input: " + reqType
         }
 
-        if op.output != nil {
+        if op.sse {
+            // A streaming op returns the SEQUENCE, not a value. Untyped `throws`
+            // rather than the endpoint's typed error enum: `pb.stream` reports a
+            // non-2xx before the stream opens and a mid-stream failure through
+            // the stream itself, so there is no single typed error the signature
+            // could honestly promise.
+            //
+            // Cancellation needs no argument: breaking out of the caller's
+            // `for try await` tears the stream down, which cancels the request,
+            // which fires the server's AbortSignal and stops the provider.
+            lines.append(indent(1) + vis + "func " + method + "(" + joinParams(inputParam, queryParam, headerParam) + ") async throws -> AsyncThrowingStream<" + resType + ", Error> {")
+            lines.append(indent(2) + "return try await " + pbRef + ".stream(" + callExpr + ")")
+        } else if op.output != nil {
             lines.append(indent(1) + "@discardableResult")
             lines.append(indent(1) + vis + "func " + method + "(" + joinParams(inputParam, queryParam, headerParam) + ") async " + throwsKw + " -> " + resType + " {")
             lines.append(indent(2) + "return try await " + pbRef + ".call(" + callExpr + ")")
