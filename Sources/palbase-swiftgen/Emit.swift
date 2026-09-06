@@ -200,8 +200,13 @@ private func roomPayloadTypeName(_ name: String, _ suffix: String) -> String {
     return typeNameOf(name) + suffix
 }
 
-// `internal`: shared with the purchases-catalog emitter (Purchases.swift).
-func swiftStringLiteral(_ s: String) -> String {
+// `private` again. The only reason this was `internal` was the
+// purchases-catalog emitter (Purchases.swift), and that emitter is gone: v2
+// carries no palstore, so it generated a client for a service that does not
+// exist. A visibility narrows when its reason disappears — a reason that no
+// longer holds misleads the next reader into thinking somebody else depends
+// on this.
+private func swiftStringLiteral(_ s: String) -> String {
     // Mirrors Go's strconv.Quote for the printable-ASCII inputs the emitter
     // sees (wire keys / codes / path segments): double-quoted with backslash
     // escapes for the special characters.
@@ -227,9 +232,9 @@ private func opSegments(_ opID: String) -> [String] {
 }
 
 private func typeNameOf(_ s: String) -> String { return sanitize(s, true) }
-// `internal` (not private): the purchases-catalog emitter in Purchases.swift needs the
-// same identifier rules — one sanitizer, not two.
-func identOf(_ s: String) -> String { return escapeKeyword(sanitize(s, false)) }
+// `private` again — see `swiftStringLiteral`: its only outside caller was the
+// purchases-catalog emitter, now removed.
+private func identOf(_ s: String) -> String { return escapeKeyword(sanitize(s, false)) }
 
 // typePrefix builds the PascalCase concatenation of all op-id segments.
 private func typePrefix(_ opID: String) -> String {
@@ -1045,4 +1050,140 @@ private func max0(_ n: Int) -> Int {
         return 0
     }
     return n
+}
+
+// --- Roles and permissions ---------------------------------------------------
+//
+// `palbase spec` writes the environment's role definitions beside its contract
+// (`.palbase/openapi/<env>.roles.json`); this turns them into two String-backed
+// enums appended to the same generated file, so an app has ONE committed codegen
+// artifact rather than a second one to wire up.
+//
+// Why generate them at all: a role and a permission are plain strings on the
+// wire, and the failure mode of a typo is a 403 — the server is right, the code
+// looks right, and nothing says which of the two hundred grants was meant. An
+// enum turns that into a compile error. Withdrawal is the same story from the
+// other side: a role deleted upstream disappears from the regenerated file, so
+// code that still names it stops BUILDING instead of silently running without
+// the access it thinks it has.
+//
+// There is deliberately no `userCount` and no assignment here. Who HAS a role is
+// runtime state that changes without a deploy; what a role IS is the definition,
+// and only the definition can be a type.
+
+/// The subset of the roles artifact this generator reads.
+///
+/// Decoding is strict on purpose. A missing artifact is an environment that
+/// predates roles and is handled by the CALLER (no file, no section); a
+/// malformed one is a broken spec round, and quietly emitting nothing for it
+/// would hand the developer a client missing the very types they just added.
+struct RolesArtifact: Decodable {
+    struct Role: Decodable {
+        let name: String
+        /// Absent when the role's name says everything — the artifact omits it
+        /// rather than writing "" (see the CLI's `stackRole`).
+        let description: String?
+        let isDefault: Bool
+        let permissions: [String]
+    }
+
+    let roles: [Role]
+}
+
+/// Emit the `PalbaseRole` / `PalbasePermission` section. Returns "" when the
+/// environment defines no roles, so a project that never adopted them gets a
+/// byte-identical client to the one it got before.
+func emitRoles(_ data: Data) throws -> String {
+    let artifact = try JSONDecoder().decode(RolesArtifact.self, from: data)
+
+    // Sorted here rather than trusted from the file: the artifact IS sorted
+    // today, but this generator can also be handed one written by hand, and an
+    // output whose order depends on its input's is an output nobody can diff.
+    let roles = artifact.roles.sorted { $0.name < $1.name }
+
+    // The permission enum is the UNION across roles — a permission is a grant the
+    // environment knows about, not a property of the one role that happens to
+    // list it first. Two roles sharing `todos.read` must produce one case.
+    var permissions: [String] = []
+    var seenPermission: Set<String> = []
+    for role in roles {
+        for permission in role.permissions where !seenPermission.contains(permission) {
+            seenPermission.insert(permission)
+            permissions.append(permission)
+        }
+    }
+    permissions.sort()
+
+    var roleBody = ""
+    var seenRoleIdent: [String: String] = [:]
+    for role in roles {
+        let ident = identOf(role.name)
+        if let first = seenRoleIdent[unbacktick(ident)] {
+            roleBody += "    // codegen: skipped duplicate role " + swiftStringLiteral(role.name) +
+                " — collides with " + swiftStringLiteral(first) +
+                " (both map to Swift `" + unbacktick(ident) + "`)\n"
+            continue
+        }
+        seenRoleIdent[unbacktick(ident)] = role.name
+        // The description and the default flag are the only things the artifact
+        // carries beyond the name, and a doc comment is where they belong: it
+        // reaches the developer at the call site without becoming API surface
+        // the two platforms would then have to keep identical.
+        if let description = role.description, !description.isEmpty {
+            roleBody += "    /// " + singleLine(description) + "\n"
+        }
+        if role.isDefault {
+            roleBody += "    /// Assigned to every new user at signup.\n"
+        }
+        roleBody += "    case " + ident + " = " + swiftStringLiteral(role.name) + "\n"
+    }
+
+    var permissionBody = ""
+    var seenPermissionIdent: [String: String] = [:]
+    for permission in permissions {
+        let ident = identOf(permission)
+        if let first = seenPermissionIdent[unbacktick(ident)] {
+            permissionBody += "    // codegen: skipped duplicate permission " +
+                swiftStringLiteral(permission) + " — collides with " + swiftStringLiteral(first) +
+                " (both map to Swift `" + unbacktick(ident) + "`)\n"
+            continue
+        }
+        seenPermissionIdent[unbacktick(ident)] = permission
+        permissionBody += "    case " + ident + " = " + swiftStringLiteral(permission) + "\n"
+    }
+
+    // An empty Swift enum compiles but can never be instantiated, and one emitted
+    // for an environment with nothing to put in it would read as a feature while
+    // making every `switch` over it unwritable. Each enum appears only when it
+    // has a case; with neither, the whole section does not exist.
+    let roleEnum = seenRoleIdent.isEmpty ? "" :
+        "public enum PalbaseRole: String, Sendable, CaseIterable {\n" + roleBody + "}\n"
+    let permissionEnum = seenPermissionIdent.isEmpty ? "" :
+        "public enum PalbasePermission: String, Sendable, CaseIterable {\n" + permissionBody + "}\n"
+    if roleEnum.isEmpty && permissionEnum.isEmpty {
+        return ""
+    }
+
+    var b = "\n// MARK: - Roles and permissions (generated — do not edit)\n"
+    b += "//\n"
+    b += "// The roles this environment defines and the permissions they grant. A name\n"
+    b += "// typed by hand is a string the server answers 403 to; a name typed here is a\n"
+    b += "// compile error. Regenerated by `palbase spec` — a role withdrawn upstream\n"
+    b += "// disappears from this file, so code still naming it stops building rather\n"
+    b += "// than silently losing access.\n"
+    b += roleEnum
+    if !roleEnum.isEmpty && !permissionEnum.isEmpty {
+        b += "\n"
+    }
+    b += permissionEnum
+    return b
+}
+
+/// Flatten a tenant-written description onto one line: it lands in a `///`
+/// comment, and a newline inside one turns the rest of the sentence into code.
+private func singleLine(_ s: String) -> String {
+    return s.split(whereSeparator: { $0 == "\n" || $0 == "\r" })
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
 }

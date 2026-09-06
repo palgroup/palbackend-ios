@@ -2,7 +2,7 @@ import Foundation
 
 // palbase-swiftgen — CLI entry. Two INDEPENDENT halves, either or both per run:
 //
-//   the client:  --openapi <spec> --out-swift <path> [--purchases-catalog <path>]
+//   the client:  --openapi <spec> --out-swift <path>
 //   the plist:   [--ios-config <json>] [--macos-config <json>] --out-plist <path>
 //
 // They are independent because they have different cardinalities. A project has
@@ -27,9 +27,6 @@ struct Args {
     var macOSConfig: String?
     var outSwift: String?
     var outPlist: String?
-    // Optional: the purchases catalog manifest. Absent = no purchases section, so a
-    // project that sells nothing gets byte-identical output to before.
-    var purchasesCatalog: String?
 }
 
 func parseArgs(_ argv: [String]) -> Args {
@@ -44,7 +41,6 @@ func parseArgs(_ argv: [String]) -> Args {
         case "--macos-config": a.macOSConfig = v; i += 2
         case "--out-swift": a.outSwift = v; i += 2
         case "--out-plist": a.outPlist = v; i += 2
-        case "--purchases-catalog": a.purchasesCatalog = v; i += 2
         default: i += 1
         }
     }
@@ -57,7 +53,6 @@ struct GenerationPlan: Equatable {
     struct SwiftJob: Equatable {
         let openapi: String
         let outSwift: String
-        let purchasesCatalog: String?
     }
     struct PlistJob: Equatable {
         let iosConfig: String?
@@ -73,7 +68,6 @@ enum ArgsError: Error, CustomStringConvertible {
     case nothingToGenerate
     case incompleteSwiftHalf
     case incompletePlistHalf
-    case purchasesCatalogWithoutSwiftHalf
 
     var description: String {
         switch self {
@@ -86,9 +80,6 @@ enum ArgsError: Error, CustomStringConvertible {
         case .incompletePlistHalf:
             return "--ios-config/--macos-config and --out-plist go together: one without the " +
                 "other is a config nobody reads, or a plist with no config to emit"
-        case .purchasesCatalogWithoutSwiftHalf:
-            return "--purchases-catalog only means something with --openapi and --out-swift: " +
-                "the catalog is appended to the generated client"
         }
     }
 }
@@ -99,12 +90,9 @@ func planGeneration(_ args: Args) throws -> GenerationPlan {
     let swiftJob: GenerationPlan.SwiftJob?
     switch (args.openapi, args.outSwift) {
     case let (openapi?, outSwift?):
-        swiftJob = .init(
-            openapi: openapi, outSwift: outSwift, purchasesCatalog: args.purchasesCatalog
-        )
+        swiftJob = .init(openapi: openapi, outSwift: outSwift)
     case (nil, nil):
         swiftJob = nil
-        if args.purchasesCatalog != nil { throw ArgsError.purchasesCatalogWithoutSwiftHalf }
     default:
         throw ArgsError.incompleteSwiftHalf
     }
@@ -157,15 +145,28 @@ if let job = plan.swiftJob {
 
     var swift = emitSwift(ops, rooms: try parseRoomsForSwift(specData))
 
-    // Purchases catalog → typed key constants, appended to the same generated file so
-    // the app has one committed codegen artifact.
-    if let catalogPath = job.purchasesCatalog {
+    // Roles → typed role/permission enums, appended to the same generated file for
+    // the same reason the catalog is: one committed codegen artifact.
+    //
+    // The path is DERIVED, not passed. `palbase spec` writes the definitions beside
+    // the contract and differing only in extension (`main.json` → `main.roles.json`)
+    // precisely so a generator handed the spec can find them BY RULE — the CLI that
+    // writes both lives in another repository, and a second setting somebody has to
+    // keep in step is a setting that drifts.
+    //
+    // No file is an ANSWER, not a failure: a checkout whose last `palbase spec`
+    // predates roles has none, and that project must still generate the client it
+    // generated before, byte for byte. A file that is there but does not parse is
+    // the opposite — the definitions were fetched and something is wrong with them,
+    // and emitting no types would hand back a client missing exactly what was added.
+    let rolesPath = URL(fileURLWithPath: job.openapi)
+        .deletingPathExtension()
+        .appendingPathExtension("roles.json")
+    if FileManager.default.fileExists(atPath: rolesPath.path) {
         do {
-            swift += try emitPurchasesCatalog(
-                Data(contentsOf: URL(fileURLWithPath: catalogPath))
-            )
+            swift += try emitRoles(Data(contentsOf: rolesPath))
         } catch {
-            die("error: cannot emit purchases catalog from \(catalogPath): \(error)")
+            die("error: cannot emit roles from \(rolesPath.path): \(error)")
         }
     }
 
