@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.55.0")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.55.2")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -163,33 +163,29 @@ One CLI command does both halves — **fetch** (online) and **generate**
    command for every platform your project ships:
 
    ```bash
-   palbase ios link
-   palbase macos link
+   palbase link <url> --platform ios
+   palbase link <url> --platform macos
    ```
 
-   Each command prompts you to select a Palbase product. The first link for a
-   platform creates its app; later runs reuse the exact app ID persisted in the
-   local `.palbase/config.json`. They do not search for or reuse an arbitrary
-   remote app just because its metadata matches. The commands write one shared
-   API contract plus fixed platform config slots:
+   Use your environment's URL. The linked target is recorded in
+   `.palbase/project.json`; the commands write contracts per environment plus
+   fixed platform config slots:
 
    ```text
    .palbase/
-     config.json
-     openapi.json
+     project.json
+     openapi/main.json
      ios/palbase-config.json
      macos/palbase-config.json
    ```
 
-   `config.json` records the selected product and linked platform app IDs. Each link
-   updates only its own platform slot and preserves the other one. An iOS-only
+   Each link updates its platform slot. An iOS-only
    project needs only the `ios` slot; a macOS-only project needs only `macos`.
    The generator reads these fixed paths directly. It does not inspect Xcode
    target names or use bundle IDs to choose a config.
 
-   Commit `.palbase/openapi.json` and the generated `.palbase/ios/` /
-   `.palbase/macos/` slot files. Keep `.palbase/config.json` local and
-   gitignored; it is CLI state, not a codegen input.
+   Commit `.palbase/project.json`, `.palbase/openapi/` and the generated
+   `.palbase/ios/` / `.palbase/macos/` publishable slot files.
 
 2. **The same command generates.** Right after writing the contract, the CLI
    emits the typed `pb.<namespace>.<operation>(...)` methods plus one
@@ -199,7 +195,7 @@ One CLI command does both halves — **fetch** (online) and **generate**
 
    ```text
    Palbase/Generated/
-     PalbaseGenerated.swift
+     main/PalbaseGenerated.swift
      Palbase-Info.plist
    ```
 
@@ -211,7 +207,7 @@ One CLI command does both halves — **fetch** (online) and **generate**
    no network.
 
 3. **Refresh after every deploy** with `palbase spec`. Any command that moves the
-   contract — `palbase spec`, `palbase ios|macos link`, `palbase ios use` —
+   contract — including `palbase spec` and `palbase link` —
    regenerates the client in the same run, so the two can't drift apart.
 
 At runtime the SDK reads `Palbase-Info.plist` from `Bundle.main` lazily on the
@@ -221,6 +217,21 @@ the other platform's values. `app_id` plus the publishable API key identify the
 linked app. `X-Palbase-Bundle` carries the host bundle ID only as runtime
 metadata. Re-run `palbase spec` (or the matching link command) to refresh both the
 contract and the generated client.
+
+Generated request bodies preserve the contract's exact JSON keys, including
+camelCase and snake_case keys in nested objects and dictionaries. Optional
+nullable fields use `Nullable<T>?`: `nil` omits the key, `.null` clears it, and
+`.value(x)` sets it. A required nullable field is sent as JSON null when nil.
+`additionalProperties` maps become typed Swift dictionaries, retaining dynamic
+keys and rejecting values of the wrong type. Explicit schemas combining declared
+properties with dynamic additional properties produce a compile-time diagnostic.
+Bare open objects retain arbitrary JSON properties as dictionaries. Schemas whose
+property names collide as Swift identifiers also produce a diagnostic instead of
+silently dropping a field.
+
+After updating the SDK package, resolve that version in Xcode and run
+`palbase spec` again so the CLI uses its matching generator. Do not hand-edit
+the generated Swift file.
 
 ### Which environment a build talks to
 

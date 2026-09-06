@@ -6,10 +6,10 @@ import Foundation
 // --- AST (mirror of swiftgen.go's swiftSchema/swiftProp/swiftOp/...) ----------
 
 struct SwiftSchema {
-    var kind: String            // string|number|integer|boolean|object|array|enum|any
+    var kind: String            // string|number|integer|boolean|object|map|mixedObject|array|enum|any
     var nullable: Bool
     var props: [SwiftProp]      // object
-    var elem: Box<SwiftSchema>? // array element (Box breaks the recursive value cycle)
+    var elem: Box<SwiftSchema>? // array element or map value (Box breaks the recursive value cycle)
     var enumVals: [String]      // enum
 }
 
@@ -487,7 +487,7 @@ private func parseSwiftSchema(_ s0: [String: Any], root: [String: Any], depth: I
     case "object":
         return parseSwiftObject(s, nullable, root: root, depth: depth)
     default:
-        if s["properties"] != nil {
+        if s["properties"] != nil || s["additionalProperties"] != nil {
             return parseSwiftObject(s, nullable, root: root, depth: depth)
         }
         return SwiftSchema(kind: "any", nullable: nullable, props: [], elem: nil, enumVals: [])
@@ -496,6 +496,24 @@ private func parseSwiftSchema(_ s0: [String: Any], root: [String: Any], depth: I
 
 private func parseSwiftObject(_ s: [String: Any], _ nullable: Bool, root: [String: Any], depth: Int) -> SwiftSchema {
     let propsRaw = (s["properties"] as? [String: Any]) ?? [:]
+    let mapValue: SwiftSchema?
+    if let schema = s["additionalProperties"] as? [String: Any] {
+        mapValue = parseSwiftSchema(schema, root: root, depth: depth + 1)
+    } else if s["additionalProperties"] as? Bool == true
+                || (propsRaw.isEmpty && s["additionalProperties"] == nil) {
+        // JSON Schema objects are open by default. In particular, a bare
+        // object nested in an array/map must not become an empty struct that
+        // drops its arbitrary content. Explicit false still means closed.
+        mapValue = SwiftSchema(kind: "any", nullable: false, props: [], elem: nil, enumVals: [])
+    } else {
+        mapValue = nil
+    }
+    if let mapValue {
+        // A struct would discard dynamic keys; a dictionary would discard the
+        // declared constraints. Refuse that unsupported combination visibly.
+        return SwiftSchema(kind: propsRaw.isEmpty ? "map" : "mixedObject", nullable: nullable,
+                           props: [], elem: Box(mapValue), enumVals: [])
+    }
     var requiredSet = Set<String>()
     if let reqRaw = s["required"] as? [Any] {
         for r in reqRaw {

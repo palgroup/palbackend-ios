@@ -1,7 +1,7 @@
 import Foundation
 
-// Emit.swift — AST → Swift source. Port of swiftemit.go.
-// Byte-for-byte faithful port of the Go emitter (cross-binding golden, T1.4).
+// Emit.swift — AST → Swift source. Originally ported from swiftemit.go;
+// generated request coding and typed maps now follow the Swift runtime contract.
 // (emitPlist lives in Plist.swift.)
 
 // emitSwift turns parsed operations into one PalbaseGenerated.swift.
@@ -123,7 +123,7 @@ private func emitRoom(_ room: SwiftRoom) -> String {
 
     // ── events (server → device) ──
     for e in room.events {
-        lines.append(contentsOf: structLines(roomPayloadTypeName(e.name, "Event"), e.schema.props, 1))
+        lines.append(contentsOf: topLevelDeclLines(roomPayloadTypeName(e.name, "Event"), e.schema, depth: 1))
     }
     lines.append(indent(1) + "public enum Event: Sendable {")
     for e in room.events {
@@ -164,9 +164,8 @@ private func emitRoom(_ room: SwiftRoom) -> String {
 
     // ── messages (device → server) ──
     for m in room.messages {
-        // requestSide: these go OUT, so the snake_case gate applies — an
-        // uppercase wire key would be silently dropped by the SDK's encoder.
-        lines.append(contentsOf: structLines(roomPayloadTypeName(m.name, "Message"), m.schema.props, 1, requestSide: true))
+        // requestSide: these go OUT, so schema keys are encoded verbatim too.
+        lines.append(contentsOf: topLevelDeclLines(roomPayloadTypeName(m.name, "Message"), m.schema, requestSide: true, depth: 1))
     }
     lines.append(indent(1) + "public enum Send: Sendable {")
     for m in room.messages {
@@ -303,49 +302,6 @@ private func escapeKeyword(_ id: String) -> String {
 }
 
 func unbacktick(_ s: String) -> String { return s.replacingOccurrences(of: "`", with: "") }
-
-// encoderCanProduce reports whether the SDK's `.convertToSnakeCase` ENCODER can
-// emit this wire key at all.
-//
-// It cannot, ever, if the key carries an uppercase letter: that strategy
-// lowercases everything it touches, so no Swift identifier — and no explicit
-// CodingKey either — can come out as `gapMs`. MEASURED 2026-08-30 rather than
-// assumed: with the strategy set, `gapMs` encodes to `gap_ms` both with and
-// without `enum CodingKeys: String, CodingKey { case gapMs = "gapMs" }`. The
-// strategy is applied to the CodingKey's stringValue, which is why the usual
-// escape hatch is not one here.
-//
-// This is deliberately the CONSERVATIVE half of the question. Exotic keys with
-// doubled or interior underscores can also fail to round-trip, and those slip
-// through — but every key this rejects is genuinely unreachable, so there are no
-// false alarms. `snakeCaseRoundTrips` above answers the DECODE direction, where
-// `ident == key` is enough; on the encode side it is not, and conflating the two
-// is exactly how a request field came to be silently dropped.
-private func encoderCanProduce(_ key: String) -> Bool {
-    return !key.contains(where: { $0.isUppercase })
-}
-
-// snakeHint renders the obvious rename so the message can show it rather than
-// describe it. Not Foundation's algorithm — a suggestion, not a contract.
-private func snakeHint(_ key: String) -> String {
-    var out = ""
-    for ch in key {
-        if ch.isUppercase {
-            if !out.isEmpty && !out.hasSuffix("_") { out.append("_") }
-            out.append(Character(ch.lowercased()))
-        } else {
-            out.append(ch)
-        }
-    }
-    return out
-}
-
-// swiftIdentLiteralSafe keeps a wire key readable inside a message without
-// letting a quote in it break the literal that carries it.
-private func swiftIdentLiteralSafe(_ s: String) -> String {
-    return "`" + s.replacingOccurrences(of: "`", with: "") + "`"
-}
-
 
 // snakeCaseRoundTrips reports whether the SDK's `.convertFromSnakeCase` decoder
 // would map the wire key back to exactly `ident` (and `.convertToSnakeCase`
@@ -528,7 +484,7 @@ private func endpointStructLines(_ op: SwiftOp) -> [String] {
     }
     var args = ["." + httpMethod.lowercased(), pathSegmentsExpr(httpPath)]
     if op.input != nil {
-        args.append("body: input")
+        args.append("body: Palbe.PBWireValue(input)")
     }
     if op.query != nil {
         args.append("query: query")
@@ -565,7 +521,7 @@ private func uploadEndpointStructLines(_ op: SwiftOp) -> [String] {
     }
     var args = [".post", pathSegmentsExpr(httpPath)]
     if op.input != nil {
-        args.append("body: input")
+        args.append("body: Palbe.PBWireValue(input)")
     }
     lines.append(indent(1) + "public var authorizeRequest: PBRequest { PBRequest(" + args.joined(separator: ", ") + ") }")
     lines.append("}")
@@ -573,18 +529,18 @@ private func uploadEndpointStructLines(_ op: SwiftOp) -> [String] {
 }
 
 // topLevelDeclLines renders one top-level type for an operation side.
-private func topLevelDeclLines(_ name: String, _ s: SwiftSchema, requestSide: Bool = false) -> [String] {
+private func topLevelDeclLines(_ name: String, _ s: SwiftSchema, requestSide: Bool = false, depth: Int = 0) -> [String] {
     if s.kind == "object" {
-        return structLines(name, s.props, 0, requestSide: requestSide)
+        return structLines(name, s.props, depth, requestSide: requestSide)
     }
-    if s.kind == "array", let elem = s.elem?.value, elem.kind == "object", elem.props.count > 0 {
-        let itemName = name + "Item"
-        var lines = structLines(itemName, elem.props, 0, requestSide: requestSide)
-        lines.append("")
-        lines.append("public typealias " + name + " = [" + itemName + "]")
-        return lines
-    }
-    return ["public typealias " + name + " = " + bareType(s)]
+    // Keep operation-side names while retaining declarations inside arbitrarily
+    // nested arrays and dictionaries. A map of objects needs a named value type.
+    let (type, nested) = s.kind == "enum" ? ("String", [String]())
+        : fieldType(s, name, depth, requestSide: requestSide)
+    var lines = nested
+    if !lines.isEmpty { lines.append("") }
+    lines.append(indent(depth) + "public typealias " + name + " = " + type + (s.nullable ? "?" : ""))
+    return lines
 }
 
 // headerStructLines emits the <Op>Headers struct PLUS an `asHeaderDict()` method.
@@ -654,11 +610,7 @@ private func topLevelErrorEnumLines(_ enumName: String, _ errs: [SwiftErrorDef])
             continue
         }
         let typeName = typeNameOf(e.name) + "Data"
-        if data.kind == "object" {
-            lines.append(contentsOf: structLines(typeName, data.props, fd))
-        } else {
-            lines.append(indent(fd) + "public typealias " + typeName + " = " + bareType(data))
-        }
+        lines.append(contentsOf: topLevelDeclLines(typeName, data, depth: fd))
     }
 
     // case declarations — declared cases first, then the `.other` fallback.
@@ -709,35 +661,25 @@ private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int, req
         var key: String
         var typ: String
         var optional: Bool
+        var required: Bool
     }
     var fields: [Field] = []
-    // Guard against identifier collision: keep the FIRST key for each ident.
+    let typeScope = NestedTypeScope()
+    // A collision cannot silently discard a contract field, even if its
+    // remaining Swift declaration would compile. Refuse the schema visibly.
     var seenIdent: [String: String] = [:]
     for p in props {
         let ident = identOf(p.name)
         if let firstKey = seenIdent[ident] {
-            lines.append(indent(fd) + "// codegen: skipped duplicate key " +
-                swiftStringLiteral(p.name) + " — collides with " + swiftStringLiteral(firstKey) +
-                " (both map to Swift `" + unbacktick(ident) + "`)")
+            lines.append(indent(fd) + "#error(" + swiftStringLiteral(
+                "palbase: " + name + " has colliding Swift property `" + unbacktick(ident) +
+                "` for wire keys " + firstKey + " and " + p.name +
+                ". This schema is unsupported; use distinct property names and regenerate the client.") + ")")
             continue
         }
         seenIdent[ident] = p.name
-        // A request field the encoder cannot address is worse than a missing
-        // one: the call compiles, runs, and the server quietly applies its
-        // default. Refusing to COMPILE is the only honest option — a comment
-        // would be read after the bug, not before it.
-        if requestSide, !encoderCanProduce(p.name) {
-            lines.append(indent(fd) + "#error(" + swiftStringLiteral(
-                "palbase: this client cannot send the field " + swiftIdentLiteralSafe(p.name) +
-                " of " + name + ". The SDK encodes request bodies with " +
-                ".convertToSnakeCase, so an uppercase letter in a wire key can never be " +
-                "produced — the field would be silently dropped and the server would apply " +
-                "its default. Rename it to snake_case in the backend schema (for example " +
-                snakeHint(p.name) + ") and re-run `palbase link`.") + ")")
-            continue
-        }
         let optional = !p.required || p.schema.nullable
-        var (typ, nested) = fieldType(p.schema, p.name, fd, requestSide: requestSide)
+        var (typ, nested) = fieldType(p.schema, p.name, fd, requestSide: requestSide, scope: typeScope)
         // A REQUEST field that is both optional and nullable carries three
         // intentions — omit, clear, set — and a plain Optional carries two.
         // Wrapping keeps "clear" expressible; see Nullable in GeneratedSupport.
@@ -747,7 +689,7 @@ private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int, req
             typ = "Nullable<" + typ + ">"
         }
         lines.append(contentsOf: nested)
-        fields.append(Field(ident: ident, key: p.name, typ: typ, optional: optional))
+        fields.append(Field(ident: ident, key: p.name, typ: typ, optional: optional, required: p.required))
     }
     for f in fields {
         var t = f.typ
@@ -770,6 +712,22 @@ private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int, req
         lines.append(indent(fd + 1) + "self." + f.ident + " = " + f.ident)
     }
     lines.append(indent(fd) + "}")
+    if requestSide {
+        lines.append(indent(fd) + "public func encode(to encoder: any Swift.Encoder) throws {")
+        lines.append(indent(fd + 1) + (fields.isEmpty ? "let" : "var") + " fields: [Swift.String: Palbe.PBWireValue] = [:]")
+        for f in fields {
+            let assignment = "fields[" + swiftStringLiteral(f.key) + "] = Palbe.PBWireValue("
+            if f.required {
+                // Required nullable nil is an explicit JSON null, never omission.
+                lines.append(indent(fd + 1) + assignment + "self." + f.ident + ")")
+            } else {
+                lines.append(indent(fd + 1) + "if let value = self." + f.ident + " { " + assignment + "value) }")
+            }
+        }
+        lines.append(indent(fd + 1) + "var container = encoder.singleValueContainer()")
+        lines.append(indent(fd + 1) + "try container.encode(fields)")
+        lines.append(indent(fd) + "}")
+    }
     // CodingKeys ONLY for the keys the SDK's coder strategy can't reconstruct.
     var needKeys = false
     for f in fields {
@@ -793,7 +751,30 @@ private func structLines(_ name: String, _ props: [SwiftProp], _ depth: Int, req
     return lines
 }
 
-private func fieldType(_ s: SwiftSchema, _ fieldName: String, _ depth: Int, requestSide: Bool = false) -> (String, [String]) {
+/// All declarations emitted into one struct/enum share a Swift type namespace.
+/// Maps and arrays synthesize names there too. Reserve runtime names and allocate
+/// deterministically so a schema cannot shadow the codec or duplicate a sibling.
+private final class NestedTypeScope {
+    private var used: Set<String> = [
+        "Swift", "Palbe", "Foundation", "String", "Int", "Double", "Bool",
+        "Encoder", "Decoder", "Encodable", "Decodable", "Codable", "Sendable",
+        "CodingKey", "CodingKeys", "AnyCodableValue", "Nullable", "PBWireValue"
+    ]
+
+    func allocate(_ proposed: String) -> String {
+        var name = proposed
+        var suffix = 2
+        while used.contains(name) {
+            name = proposed + String(suffix)
+            suffix += 1
+        }
+        used.insert(name)
+        return name
+    }
+}
+
+private func fieldType(_ s: SwiftSchema, _ fieldName: String, _ depth: Int, requestSide: Bool = false,
+                       scope: NestedTypeScope = NestedTypeScope()) -> (String, [String]) {
     switch s.kind {
     case "string":
         return ("String", [])
@@ -806,7 +787,7 @@ private func fieldType(_ s: SwiftSchema, _ fieldName: String, _ depth: Int, requ
     case "any":
         return ("AnyCodableValue", [])
     case "enum":
-        let typeName = typeNameOf(fieldName) + "Value"
+        let typeName = scope.allocate(typeNameOf(fieldName) + "Value")
         var decl = [indent(depth) + "public nonisolated enum " + typeName + ": String, Codable, Sendable {"]
         for c in s.enumVals {
             decl.append(indent(depth + 1) + "case " + identOf(c) + " = \"" + c + "\"")
@@ -814,32 +795,22 @@ private func fieldType(_ s: SwiftSchema, _ fieldName: String, _ depth: Int, requ
         decl.append(indent(depth) + "}")
         return (typeName, decl)
     case "array":
-        let (elemType, nested) = fieldType(s.elem!.value, fieldName + "Item", depth, requestSide: requestSide)
-        return ("[" + elemType + "]", nested)
+        let elem = s.elem!.value
+        let (elemType, nested) = fieldType(elem, fieldName + "Item", depth, requestSide: requestSide, scope: scope)
+        return ("[" + elemType + (elem.nullable ? "?" : "") + "]", nested)
+    case "map":
+        let value = s.elem!.value
+        let (valueType, nested) = fieldType(value, fieldName + "Value", depth, requestSide: requestSide, scope: scope)
+        return ("[String: " + valueType + (value.nullable ? "?" : "") + "]", nested)
+    case "mixedObject":
+        return ("AnyCodableValue", [indent(depth) + "#error(" + swiftStringLiteral(
+            "palbase: " + fieldName + " combines declared properties with additionalProperties. " +
+            "This mixed object schema is unsupported; use a separate typed map field and regenerate the client.") + ")"])
     case "object":
-        let typeName = typeNameOf(fieldName)
+        let typeName = scope.allocate(typeNameOf(fieldName))
         return (typeName, structLines(typeName, s.props, depth, requestSide: requestSide))
     default:
         return ("AnyCodableValue", [])
-    }
-}
-
-private func bareType(_ s: SwiftSchema) -> String {
-    switch s.kind {
-    case "string":
-        return "String"
-    case "number":
-        return "Double"
-    case "integer":
-        return "Int"
-    case "boolean":
-        return "Bool"
-    case "enum":
-        return "String"
-    case "array":
-        return "[" + bareType(s.elem!.value) + "]"
-    default:
-        return "AnyCodableValue"
     }
 }
 
