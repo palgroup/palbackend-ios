@@ -6,7 +6,7 @@ import Foundation
 //   { default_environment: "main",
 //     environments: {
 //       "<name>": { app_id, base_url, api_key,
-//                   oauth?: { apple?: {enabled}, google?: {enabled, client_id, redirect_uri} },
+//                   oauth?: <target-specific public OAuth snapshot>,
 //                   purchases?: { base_url, publishable_key } }, … } }
 //
 // Output is an `{ios?, macos?}` envelope whose values are those same
@@ -95,7 +95,7 @@ private struct PlatformSlot {
 private func decodePlatform(_ configBytes: Data, platform: String) throws -> PlatformSlot {
     let root: Any
     do {
-        root = try JSONSerialization.jsonObject(with: configBytes)
+        root = try decodeConfigJSON(configBytes)
     } catch {
         throw PlistError.invalidJSON(error.localizedDescription)
     }
@@ -142,6 +142,11 @@ private func decodePlatform(_ configBytes: Data, platform: String) throws -> Pla
         // is how the app finds out which environments exist at all.
         guard fields["api_key"] is String else {
             throw PlistError.missingAPIKeyField("environments.\(name).api_key")
+        }
+        if fields["auth"] != nil || fields["socialAuth"] != nil { throw PlistError.invalidRequiredField("environments.\(name).oauth (use the oauth field)") }
+        if let oauth = fields["oauth"] { try validateOAuthSnapshot(oauth, platform: platform, apiKey: fields["api_key"] as! String) }
+        for feature in ["oauth", "notifications", "integrity"] {
+            if let value = fields[feature] { try validateConfigPlistValue(value, path: "environments.\(name).\(feature)") }
         }
         validated.append((name, fields))
     }
@@ -194,7 +199,12 @@ private func writeEnvironmentDict(_ b: inout String, _ env: [String: Any], _ ind
         b += indent + "\t<key>sealed_root</key>\n"
         b += indent + "\t<string>" + plistEscape(sealedRoot) + "</string>\n"
     }
-    writeOAuthDict(&b, env["oauth"] as? [String: Any], indent + "\t")
+    for feature in ["oauth", "notifications", "integrity"] {
+        if let value = env[feature] {
+            b += indent + "\t<key>" + feature + "</key>\n"
+            writeConfigValue(&b, value, indent + "\t")
+        }
+    }
     writePurchasesDict(&b, env["purchases"] as? [String: Any], indent + "\t")
     b += indent + "</dict>\n"
 }
@@ -223,35 +233,6 @@ private func writePurchasesDict(_ b: inout String, _ purchases: [String: Any]?, 
     for (key, val) in fields {
         b += indent + "\t<key>" + plistEscape(key) + "</key>\n"
         b += indent + "\t<string>" + plistEscape(val) + "</string>\n"
-    }
-    b += indent + "</dict>\n"
-}
-
-private func writeOAuthDict(_ b: inout String, _ oauth: [String: Any]?, _ indent: String) {
-    guard let oauth else { return }
-    let apple = oauth["apple"] as? [String: Any]
-    let google = oauth["google"] as? [String: Any]
-    if apple == nil && google == nil { return }
-
-    b += indent + "<key>oauth</key>\n"
-    b += indent + "<dict>\n"
-    if let apple {
-        b += indent + "\t<key>apple</key>\n"
-        b += indent + "\t<dict>\n"
-        b += indent + "\t\t<key>enabled</key>\n"
-        b += indent + "\t\t" + plistBool(bool(apple, "enabled")) + "\n"
-        b += indent + "\t</dict>\n"
-    }
-    if let google {
-        b += indent + "\t<key>google</key>\n"
-        b += indent + "\t<dict>\n"
-        b += indent + "\t\t<key>enabled</key>\n"
-        b += indent + "\t\t" + plistBool(bool(google, "enabled")) + "\n"
-        for (key, val) in [("client_id", str(google, "client_id")), ("redirect_uri", str(google, "redirect_uri"))] {
-            b += indent + "\t\t<key>" + plistEscape(key) + "</key>\n"
-            b += indent + "\t\t<string>" + plistEscape(val) + "</string>\n"
-        }
-        b += indent + "\t</dict>\n"
     }
     b += indent + "</dict>\n"
 }

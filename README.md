@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.55.2")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.56.0")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -324,6 +324,21 @@ try await pb.auth.signInWithGoogle()   // client config baked in by codegen
 try await pb.auth.signOut()
 let user = try await pb.auth.getUser()
 ```
+
+OAuth clients are configured per application, platform and variant, then included
+in `Palbase-Info.plist` by the existing `palbase link` command. Google iOS uses
+its iOS client ID and registered redirect scheme; Apple native uses its bundle
+ID. Web credentials stay on the backend. Microsoft and GitHub use the same
+`pb.auth.signIn(with:)` API; provider convenience methods remain available.
+
+OAuth returns `OAuthResult.signedIn`, `.mfaRequired`, or `.linked`. Present MFA
+before treating a user as signed in. Account linking is explicit through
+`linkIdentity`, requires a recent verified sign-in, and never merges accounts
+by email. `beginOAuth`, `completeOAuth`, `resumeOAuth(callback:)` and
+`cancelOAuth` support custom presentation and recovery. Temporary completion
+failures retain the exact proof and result in Keychain, scoped to the backend
+and selected app; a changed result is refused. Handle cancellation by the
+`oauth_cancelled` error code.
 
 Session storage and token refresh are automatic (Keychain-backed). Observe
 auth state for UI gating:
