@@ -1,7 +1,7 @@
 import Foundation
 
 // Plist.swift — emits Palbase-Info.plist from the per-platform config files
-// written by `palbase ios link` and `palbase macos link`:
+// written by `palbase link <url> --platform ios|macos`:
 //
 //   { default_environment: "main",
 //     environments: {
