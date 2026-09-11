@@ -5,14 +5,23 @@ import Foundation
 //   the client:  --openapi <spec> --out-swift <path>
 //   the plist:   [--ios-config <json>] [--macos-config <json>] --out-plist <path>
 //
-// They are independent because they have different cardinalities. A project has
-// ONE plist (it carries every environment) but as many clients as it has
-// environments, each generated from THAT environment's own spec — dev is usually
-// ahead of production, and an app built for dev must not compile against
-// production's endpoint set. The Palbase CLI holds the list of environments, so
-// it runs this once per environment for the client and once for the plist;
-// requiring both halves on every run would either rewrite one plist N times or
-// scatter N copies of it beside the clients.
+// N COPIES OF THE PLIST, ONE PER ENVIRONMENT, IS THE DESIGN. Every environment
+// owns a flat directory in the customer's checkout
+// (`palbase/environments/<env>/`) holding that environment's spec, its platform
+// config slots, its generated client AND its own plist; the BUILD picks which
+// directory compiles, so the app bundle carries exactly one plist and the SDK
+// has no name left to resolve. The plist used to be written once for the whole
+// project, carrying an environment map the app indexed at runtime — that cost a
+// resolution step the customer had to configure, and unconfigured it did not
+// fail, it silently talked to the wrong environment. Do not merge the halves
+// back into one file.
+//
+// The two halves stay independent because they read different inputs and a run
+// may legitimately have one without the other: the client comes from that
+// environment's `openapi.json`, the plist from its `ios-config.json` /
+// `macos-config.json`, and an environment carrying a contract but no Apple slot
+// generates a client and no plist. The Palbase CLI holds the list of
+// environments and issues the two invocations per environment itself.
 //
 // Passing neither half is an error, as is half of a pair (a spec with nowhere to
 // write, a config with no --out-plist) — silence there would look like success.
@@ -48,7 +57,8 @@ func parseArgs(_ argv: [String]) -> Args {
 }
 
 /// What ONE invocation was asked to produce. Either half may be absent — see the
-/// header: the two halves have different cardinalities.
+/// header: the two halves read different inputs and either can be the only one
+/// a given run has.
 struct GenerationPlan: Equatable {
     struct SwiftJob: Equatable {
         let openapi: String
@@ -149,10 +159,11 @@ if let job = plan.swiftJob {
     // the same reason the catalog is: one committed codegen artifact.
     //
     // The path is DERIVED, not passed. `palbase spec` writes the definitions beside
-    // the contract and differing only in extension (`main.json` → `main.roles.json`)
-    // precisely so a generator handed the spec can find them BY RULE — the CLI that
-    // writes both lives in another repository, and a second setting somebody has to
-    // keep in step is a setting that drifts.
+    // the contract in the same environment directory, and this derives the name
+    // from the spec's own (`<spec>.json` → `<spec>.roles.json`) precisely so a
+    // generator handed the spec can find them BY RULE — the CLI that writes both
+    // lives in another repository, and a second setting somebody has to keep in
+    // step is a setting that drifts.
     //
     // No file is an ANSWER, not a failure: a checkout whose last `palbase spec`
     // predates roles has none, and that project must still generate the client it
@@ -177,8 +188,9 @@ if let job = plan.swiftJob {
     }
 }
 
-// The plist is not derived from any spec. The platform configs produce one
-// envelope carrying every environment of every available platform.
+// The plist is not derived from any spec. The platform configs of ONE environment
+// produce one `{ios?, macos?}` envelope for that environment — flat slots, no
+// environment map (see Plist.swift).
 if let job = plan.plistJob {
     do {
         let iosData = try job.iosConfig.map {

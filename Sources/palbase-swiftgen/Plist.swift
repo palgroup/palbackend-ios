@@ -1,54 +1,54 @@
 import Foundation
 
-// Plist.swift — emits Palbase-Info.plist from the per-platform config files
-// written by `palbase link <url> --platform ios|macos`:
+// Plist.swift — emits Palbase-Info.plist from the per-platform config file
+// `palbase link` writes into ONE environment's directory
+// (`palbase/environments/<env>/`):
 //
-//   { default_environment: "main",
-//     environments: {
-//       "<name>": { app_id, base_url, api_key,
-//                   oauth?: <target-specific public OAuth snapshot>,
-//                   purchases?: { base_url, publishable_key } }, … } }
+//   { app_id, base_url, api_key,
+//     oauth?: <target-specific public OAuth snapshot>,
+//     purchases?: { base_url, publishable_key } }
 //
-// Output is an `{ios?, macos?}` envelope whose values are those same
-// `{default_environment, environments}` slots. A single available platform is
-// valid; absent platforms stay absent. The format uses fixed key order,
-// alphabetically sorted environment names, tab indentation, and DOCTYPE.
+// Output is an `{ios?, macos?}` envelope whose values are those same flat
+// fields. A single available platform is valid; absent platforms stay absent.
+// The format uses fixed key order, tab indentation, and DOCTYPE.
 //
-// EVERY environment of the project rides in ONE plist, and the build picks one by
-// name (`PALBASE_ENV`, resolved by `PalbaseEnvironmentSelection` in the SDK). The
-// file used to carry exactly one environment, so pointing an app at another one
-// meant OVERWRITING it — two build configurations could not name prod and the
-// local stack at the same time, and comparing them meant re-running link between
-// builds.
+// THE ENVIRONMENT MAP IS GONE, AND THE REASON IT EXISTED IS GONE WITH IT.
+//
+// This file used to emit `{default_environment, environments: {...}}` — every
+// environment of the project in ONE plist, the app picking one at runtime by
+// name (`PALBASE_ENV`, resolved by `PalbaseEnvironmentSelection`). The recorded
+// justification was that the plist lived at ONE path, so pointing an app at
+// another environment meant OVERWRITING it: two build configurations could not
+// name prod and the local stack at the same time.
+//
+// That constraint was in the LAYOUT, not in the plist. Every environment now has
+// its own directory and its own plist, and the BUILD picks one — measured on a
+// real Xcode 26.6 build with `EXCLUDED_SOURCE_FILE_NAMES` +
+// `INCLUDED_SOURCE_FILE_NAMES` over `$(PALBASE_ENV)`, both directions, with the
+// unselected environment's plist never entering the app bundle. So the app
+// bundle carries exactly ONE plist, and nothing has a name left to resolve.
+//
+// Do not reintroduce the map: its cost is a runtime resolution step the customer
+// has to configure, and that step is what made a build in the `Local`
+// configuration sign up against the MAIN environment's address while every build
+// setting still read `local`.
 
 enum PlistError: Error, CustomStringConvertible {
     case invalidJSON(String)
     case noPlatformConfigs
-    case noEnvironments(String)
-    case blankEnvironmentName(String)
     case invalidRequiredField(String)
     case missingAPIKeyField(String)
-    case unknownDefaultEnvironment(requested: String, available: [String])
 
     var description: String {
         switch self {
         case .invalidJSON(let m): return "palbase-config.json is not valid JSON: \(m)"
         case .noPlatformConfigs:
             return "refusing to write plist: no platform config was given"
-        case .noEnvironments(let platform):
-            return "refusing to write plist: the \(platform) config declares no environments"
-        case .blankEnvironmentName(let platform):
-            return "refusing to write plist: the \(platform) config has an environment whose " +
-                "name is blank — no PALBASE_ENV value can ever select it"
         case .invalidRequiredField(let field):
             return "palbase-config.json is missing nonempty required field \(field)"
         case .missingAPIKeyField(let field):
             return "palbase-config.json is missing required field \(field) — it must be present " +
                 "as a string, though it may be empty while that environment has no key yet"
-        case .unknownDefaultEnvironment(let requested, let available):
-            let names = available.isEmpty ? "(none)" : available.joined(separator: ", ")
-            return "palbase-config.json: default_environment \"\(requested)\" names no " +
-                "environment (it carries: \(names))"
         }
     }
 }
@@ -67,11 +67,11 @@ func emitPlist(iosConfigBytes: Data?, macOSConfigBytes: Data?) throws -> String 
     b += "<dict>\n"
     if let ios {
         b += "\t<key>ios</key>\n"
-        writePlatformDict(&b, ios, "\t")
+        writeEnvironmentDict(&b, ios, "\t")
     }
     if let macOS {
         b += "\t<key>macos</key>\n"
-        writePlatformDict(&b, macOS, "\t")
+        writeEnvironmentDict(&b, macOS, "\t")
     }
     b += "</dict>\n"
     b += "</plist>\n"
@@ -85,86 +85,45 @@ private let plistHeader = """
 
 """
 
-/// One platform's slot: the default environment plus every environment, in
-/// sorted order so the emitted bytes are deterministic.
-private struct PlatformSlot {
-    let defaultEnvironment: String
-    let environments: [(name: String, fields: [String: Any])]
-}
-
-private func decodePlatform(_ configBytes: Data, platform: String) throws -> PlatformSlot {
+/// One platform's slot: this environment's own fields, flat.
+private func decodePlatform(_ configBytes: Data, platform: String) throws -> [String: Any] {
     let root: Any
     do {
         root = try decodeConfigJSON(configBytes)
     } catch {
         throw PlistError.invalidJSON(error.localizedDescription)
     }
-    guard let slot = root as? [String: Any] else {
+    guard let fields = root as? [String: Any] else {
         throw PlistError.invalidJSON("the \(platform) config is not a JSON object")
     }
-    guard let environments = slot["environments"] as? [String: Any], !environments.isEmpty else {
-        throw PlistError.noEnvironments(platform)
-    }
-    guard let defaultEnvironment = slot["default_environment"] as? String,
-          !defaultEnvironment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-        throw PlistError.invalidRequiredField("default_environment")
-    }
-    // A default that names nothing is refused HERE, at generate time, rather
-    // than at app boot on a developer's device.
-    guard environments[defaultEnvironment] != nil else {
-        throw PlistError.unknownDefaultEnvironment(
-            requested: defaultEnvironment, available: environments.keys.sorted()
-        )
-    }
-
-    var validated: [(name: String, fields: [String: Any])] = []
-    for name in environments.keys.sorted() {
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw PlistError.blankEnvironmentName(platform)
+    // The key carries the project's identity, so there is no separate ref to
+    // require — and requiring one meant requiring a copy that could disagree
+    // with it (measured 2026-08-16: link wrote "selfhost" beside a key saying
+    // "project", and everything derived from the wrong one named a channel
+    // nobody else used).
+    for field in ["app_id", "base_url"] {
+        guard let value = fields[field] as? String,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PlistError.invalidRequiredField(field)
         }
-        guard let fields = environments[name] as? [String: Any] else {
-            throw PlistError.invalidRequiredField("environments.\(name)")
-        }
-        // The key carries the project's identity, so there is no separate ref to
-        // require — and requiring one meant requiring a copy that could disagree
-        // with it (measured 2026-08-16: link wrote "selfhost" beside a key saying
-        // "project", and everything derived from the wrong one named a channel
-        // nobody else used).
-        for field in ["app_id", "base_url"] {
-            guard let value = fields[field] as? String,
-                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw PlistError.invalidRequiredField("environments.\(name).\(field)")
-            }
-        }
-        // Present but possibly empty: a `local` environment linked while its
-        // stack was down has no key yet. The SDK refuses to BOOT such an
-        // environment with a typed error naming `palbase start`; writing it out
-        // is how the app finds out which environments exist at all.
-        guard fields["api_key"] is String else {
-            throw PlistError.missingAPIKeyField("environments.\(name).api_key")
-        }
-        if fields["auth"] != nil || fields["socialAuth"] != nil { throw PlistError.invalidRequiredField("environments.\(name).oauth (use the oauth field)") }
-        if let oauth = fields["oauth"] { try validateOAuthSnapshot(oauth, platform: platform, apiKey: fields["api_key"] as! String) }
-        for feature in ["oauth", "notifications", "integrity"] {
-            if let value = fields[feature] { try validateConfigPlistValue(value, path: "environments.\(name).\(feature)") }
-        }
-        validated.append((name, fields))
     }
-    return PlatformSlot(defaultEnvironment: defaultEnvironment, environments: validated)
-}
-
-private func writePlatformDict(_ b: inout String, _ slot: PlatformSlot, _ indent: String) {
-    b += indent + "<dict>\n"
-    b += indent + "\t<key>default_environment</key>\n"
-    b += indent + "\t<string>" + plistEscape(slot.defaultEnvironment) + "</string>\n"
-    b += indent + "\t<key>environments</key>\n"
-    b += indent + "\t<dict>\n"
-    for (name, fields) in slot.environments {
-        b += indent + "\t\t<key>" + plistEscape(name) + "</key>\n"
-        writeEnvironmentDict(&b, fields, indent + "\t\t")
+    // Present but possibly empty: a `local` environment linked while its stack
+    // was down has no key yet. The SDK refuses to BOOT such a config with a
+    // typed error naming `palbase start`; writing it out is how the app finds
+    // out the environment exists at all.
+    guard fields["api_key"] is String else {
+        throw PlistError.missingAPIKeyField("api_key")
     }
-    b += indent + "\t</dict>\n"
-    b += indent + "</dict>\n"
+    if fields["auth"] != nil || fields["socialAuth"] != nil {
+        throw PlistError.invalidRequiredField("oauth (use the oauth field)")
+    }
+    if let oauth = fields["oauth"] {
+        try validateOAuthSnapshot(oauth, platform: platform, apiKey: fields["api_key"] as! String)
+    }
+    for feature in ["oauth", "notifications", "integrity"] {
+        if let value = fields[feature] { try validateConfigPlistValue(value, path: feature) }
+    }
+    return fields
 }
 
 private func writeEnvironmentDict(_ b: inout String, _ env: [String: Any], _ indent: String) {

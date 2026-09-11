@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.58.6")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.59.0")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -167,54 +167,62 @@ One CLI command does both halves — **fetch** (online) and **generate**
    palbase link <url> --platform macos
    ```
 
-   Use your environment's URL. The linked target is recorded in
-   `.palbase/project.json`; the commands write contracts per environment plus
-   fixed platform config slots:
+   Use your environment's URL. The CLI creates ONE visible directory in your
+   checkout — `palbase/` — and everything that belongs to one environment lives
+   together in that environment's own directory:
 
    ```text
-   .palbase/
-     project.json
-     openapi/main.json
-     ios/palbase-config.json
-     macos/palbase-config.json
+   palbase/
+     project.json                     which project this checkout talks to
+     environments/
+       local/                         the stack `palbase start` runs here
+         openapi.json                 the contract
+         roles.json                   the role definitions
+         ios-config.json              the ios slot the generator reads
+         macos-config.json            the macos slot the generator reads
+       main/
+         …                            same files, for the deployed environment
    ```
 
-   Each link updates its platform slot. An iOS-only
-   project needs only the `ios` slot; a macOS-only project needs only `macos`.
-   The generator reads these fixed paths directly. It does not inspect Xcode
-   target names or use bundle IDs to choose a config.
-
-   Commit `.palbase/project.json`, `.palbase/openapi/` and the generated
-   `.palbase/ios/` / `.palbase/macos/` publishable slot files.
+   Each link updates its platform slot in every environment it resolves. An
+   iOS-only project gets only `ios-config.json`; a macOS-only project gets only
+   `macos-config.json`. The generator reads these paths by rule. It does not
+   inspect Xcode target names or use bundle IDs to choose a config.
 
 2. **The same command generates.** Right after writing the contract, the CLI
-   emits the typed `pb.<namespace>.<operation>(...)` methods plus one
-   `Palbase-Info.plist` (carrying the available `ios` / `macos` slots, each with
-   every environment of the project — see "Which environment a build talks to")
-   into:
+   emits — for EACH environment, into that environment's own directory — the
+   typed `pb.<namespace>.<operation>(...)` methods and that environment's
+   `Palbase-Info.plist`:
 
    ```text
-   Palbase/Generated/
-     main/PalbaseGenerated.swift
-     Palbase-Info.plist
+   palbase/environments/
+     local/
+       PalbaseGenerated.swift
+       Palbase-Info.plist
+     main/
+       PalbaseGenerated.swift
+       Palbase-Info.plist
    ```
 
-   **Add the `Palbase` folder to your app target once** (drag it into Xcode as a
-   folder reference — the `.swift` compiles, the `.plist` ships as a bundle
-   resource), and **commit what's inside**. From then on the typed surface is
-   ordinary source: it shows up in autocomplete before any build, changes to it
-   arrive as a reviewable `git diff`, and a fresh clone compiles with no CLI and
-   no network.
+   **Add `palbase/environments` to your app target once** — the `.swift` files
+   compile, the `.plist` ships as a bundle resource — then tell the build which
+   environment to compile (see "Which environment a build talks to" below), and
+   **commit all of it**. Nothing under
+   `palbase/` is a build artifact: the typed surface is ordinary source, so it
+   shows up in autocomplete before any build, changes to it arrive as a
+   reviewable `git diff`, and a fresh clone compiles with no CLI and no network.
 
 3. **Refresh after every deploy** with `palbase spec`. Any command that moves the
    contract — including `palbase spec` and `palbase link` —
    regenerates the client in the same run, so the two can't drift apart.
 
 At runtime the SDK reads `Palbase-Info.plist` from `Bundle.main` lazily on the
-first `pb.*` access. A macOS build reads only `macos`; an iOS/iPadOS build reads
-only `ios`. A missing current-platform slot fails configuration instead of using
-the other platform's values. `app_id` plus the publishable API key identify the
-linked app. `X-Palbase-Bundle` carries the host bundle ID only as runtime
+first `pb.*` access. The bundle carries exactly ONE — the plist of the
+environment this build compiled against — so there is no name to resolve and
+nothing to select. A macOS build reads only the `macos` slot; an iOS/iPadOS build
+reads only `ios`. A missing current-platform slot fails configuration instead of
+using the other platform's values. `app_id` plus the publishable API key identify
+the linked app. `X-Palbase-Bundle` carries the host bundle ID only as runtime
 metadata. Re-run `palbase spec` (or the matching link command) to refresh both the
 contract and the generated client.
 
@@ -235,25 +243,42 @@ the generated Swift file.
 
 ### Which environment a build talks to
 
-One plist carries EVERY environment of the project — production, dev, and the
-`local` stack on your machine — so two build configurations of the same app can
-point at two of them at once, with nothing to re-run in between. Each build picks
-one **by name**:
+**The BUILD picks it, not the app.** Every environment has its own directory
+with its own client and its own plist; Xcode compiles exactly one of them, so
+the app bundle carries one plist and the SDK reads it with nothing to resolve.
+Two build configurations of the same app can still point at production and at
+the `local` stack at once — that is what the per-environment directories buy.
 
-1. `PALBASE_ENV` in **your app's own `Info.plist`** — normally
-   `<key>PALBASE_ENV</key><string>$(PALBASE_ENV)</string>`, with the value set per
-   build configuration in an xcconfig. This is the compile-time answer and it wins.
-2. the `PALBASE_ENV` **process variable** — an Xcode scheme override or a
-   simulator run, for when you want to switch without rebuilding the setting in.
-3. otherwise the plist's `default_environment`.
+The selection is three lines in **your own** build configuration (an xcconfig,
+Xcode build settings, Tuist — whatever you already use). Palbase does not write
+them; it prints them once at the end of `palbase link`:
 
-A blank value counts as unset (an `Info.plist` that expands `$(PALBASE_ENV)` while
-no xcconfig defines it ships an empty string, and that must mean "use the
-default"). A name the plist does not carry fails configuration with an error that
-lists the names it does carry — it never quietly falls back to another
-environment. An environment whose API key is empty — a `local` stack that was not
-running when the plist was written — fails with an error naming `palbase start`
-and `palbase spec` rather than sending a keyless request.
+```text
+PALBASE_ENV = main
+EXCLUDED_SOURCE_FILE_NAMES = */palbase/environments/*/*
+INCLUDED_SOURCE_FILE_NAMES = */palbase/environments/$(PALBASE_ENV)/*
+```
+
+`PALBASE_ENV` is the only line you ever change; the other two never do — they
+name `$(PALBASE_ENV)` rather than any environment, so adding or removing an
+environment does not touch them. Set `PALBASE_ENV` per build configuration and
+each configuration compiles its own environment. Leave it unset and the build
+takes `local`, the stack this machine runs.
+
+The two-level `*/…/*/*` glob is not a typo. Measured on a real Xcode 26.6 build:
+`*` does NOT cross a directory boundary in these settings, so
+`*/palbase/environments/*` excludes nothing at all while the form above excludes
+correctly — verified in both directions, with the unselected environment's plist
+never entering the app bundle.
+
+Nothing goes into **your app's own `Info.plist`**: the SDK reads no `PALBASE_ENV`
+key at runtime and resolves no environment name. A build whose `PALBASE_ENV`
+names an environment that does not exist compiles NO client at all, so the
+failure is a compile error at your call site rather than a silent fallback to
+some other environment's address. An environment whose API key is empty — a
+`local` stack that was not running when the plist was written — fails
+configuration with an error naming `palbase start` and `palbase spec` rather than
+sending a keyless request.
 
 `http://127.0.0.1:<port>` needs **no** App Transport Security exception in your
 app: measured on iOS 26.5, ATS does not apply to loopback, while plain HTTP to a
@@ -269,7 +294,7 @@ Everything hangs off the global `pb`.
 ### Typed endpoint calls (generated)
 
 Codegen writes one typed method per backend endpoint into
-`Palbase/Generated/PalbaseGenerated.swift`:
+`palbase/environments/<env>/PalbaseGenerated.swift`:
 
 ```swift
 import Palbe
