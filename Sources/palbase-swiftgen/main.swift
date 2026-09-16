@@ -124,22 +124,56 @@ func planGeneration(_ args: Args) throws -> GenerationPlan {
     return GenerationPlan(swiftJob: swiftJob, plistJob: plistJob)
 }
 
-/// Where the roles artifact is, expressed as the CLI's own rule.
-///
-/// The CLI writes `palbase/environments/<env>/roles.json` beside that
-/// environment's `openapi.json` (`layout.go:69`), so the rule is "the sibling
-/// named `roles.json`" — not a transformation of the spec's own file name. It is
-/// a named function so a test can measure the RESOLUTION; the golden test that
-/// calls `emitRoles` directly cannot, and that gap is why a broken rule shipped.
-func rolesArtifactURL(besideSpec spec: String) -> URL {
-    URL(fileURLWithPath: spec)
-        .deletingLastPathComponent()
-        .appendingPathComponent("roles.json")
-}
 
 func die(_ msg: String) -> Never {
     FileHandle.standardError.write(Data((msg + "\n").utf8))
     exit(1)
+}
+
+/// Why a contract cannot yield roles, in the words the user needs.
+///
+/// A VALUE, not an `exit(1)`. `die` ends the process, so no assertion can ever
+/// read what it said — and the sentence IS the requirement here: it has to name
+/// the two steps in order. A message nothing can measure is a message that rots.
+struct RolesNotInContract: Error, CustomStringConvertible {
+    let description: String
+}
+
+/// The role definitions as they travel INSIDE the contract (`x-palbase-roles`),
+/// handed back as the same `{"roles": [...]}` bytes `emitRoles` already reads.
+///
+/// There is no sibling file to find any more, so there is no path rule to get
+/// wrong — which is exactly what the retired one did: it derived
+/// `<spec>.roles.json` while the CLI wrote `roles.json`, the two never met, and
+/// every Apple client shipped without its role types until v0.62.1.
+///
+/// ABSENT IS NO LONGER AN ANSWER. A contract fetched by a CLI carrying this
+/// change always has the field; one without it is STALE, and emitting nothing
+/// would silently drop constants somebody's code already names.
+func rolesBody(inContract spec: Data) throws -> Data {
+    guard let root = try JSONSerialization.jsonObject(with: spec) as? [String: Any] else {
+        throw RolesNotInContract(description: "the contract is not a JSON object")
+    }
+    guard let field = root["x-palbase-roles"] else {
+        throw RolesNotInContract(description:
+            "this contract carries no `x-palbase-roles`, so it predates roles travelling "
+            + "inside the document. Two steps, in this order: upgrade `@palbase/backend` "
+            + "and push the project, then run `palbase link` to refresh the contract.")
+    }
+    // PRESENT BUT BODILESS IS ALSO A REFUSAL (FR-021), and it is checked HERE
+    // rather than in emitRoles so the emitter stays exactly as it is. `{}` is not
+    // "no roles" — it is a contract whose producer answered about roles without
+    // listing any, which is what the stack itself refuses to serve. Emitting
+    // nothing for it would delete constants somebody's code already names.
+    // `{"roles": []}` is NOT this case: that is a stack with no roles, and it
+    // legitimately emits nothing.
+    guard let body = field as? [String: Any], body["roles"] is [Any] else {
+        throw RolesNotInContract(description:
+            "this contract's `x-palbase-roles` carries no roles list, so what the stack "
+            + "defines cannot be read from it. Refresh the contract; if it comes back the "
+            + "same, the stack is serving a malformed document.")
+    }
+    return try JSONSerialization.data(withJSONObject: body)
 }
 
 let args = parseArgs(Array(CommandLine.arguments.dropFirst()))
@@ -168,39 +202,13 @@ if let job = plan.swiftJob {
 
     var swift = emitSwift(ops, rooms: try parseRoomsForSwift(specData))
 
-    // Roles → typed role/permission enums, appended to the same generated file for
-    // the same reason the catalog is: one committed codegen artifact.
-    //
-    // The path is DERIVED, not passed, and the RULE IS THE CLI'S: the definitions
-    // sit beside the contract under the name the CLI writes them as — `roles.json`.
-    // Deriving a name from the spec's own instead is what broke this: it looked for
-    // `<spec>.roles.json`, the CLI writes `roles.json`, and the two never met.
-    //
-    // MEASURED 16.09.2026, end to end. With `roles.json` beside `openapi.json` —
-    // exactly what `palbase link` leaves on disk — this tool exited 0 and emitted a
-    // client with ZERO role types. Copying the same bytes to `openapi.roles.json`
-    // made them appear (`case author`, `case moderator`), which is what proved the
-    // path and not the decoder. So every Apple client generated since this rule was
-    // written has been missing its role enums, silently, and the golden test stayed
-    // green because it calls `emitRoles` directly and never resolves a path.
-    //
-    // Android already follows the CLI's rule (`environmentDirectory.resolve(
-    // ROLES_FILE)` where `ROLES_FILE = "roles.json"`), and its plugin test writes a
-    // real file and reads the enums back — which is why the same bug never reached
-    // it. The rule is the file name, not a transformation of the spec's.
-    //
-    // No file is an ANSWER, not a failure: a checkout whose last `palbase spec`
-    // predates roles has none, and that project must still generate the client it
-    // generated before, byte for byte. A file that is there but does not parse is
-    // the opposite — the definitions were fetched and something is wrong with them,
-    // and emitting no types would hand back a client missing exactly what was added.
-    let rolesPath = rolesArtifactURL(besideSpec: job.openapi)
-    if FileManager.default.fileExists(atPath: rolesPath.path) {
-        do {
-            swift += try emitRoles(Data(contentsOf: rolesPath))
-        } catch {
-            die("error: cannot emit roles from \(rolesPath.path): \(error)")
-        }
+    // Roles → typed role/permission enums, appended to the same generated file
+    // for the same reason the catalog is: one committed codegen artifact. They
+    // come from the SAME BYTES the operations did — see rolesBody(inContract:).
+    do {
+        swift += try emitRoles(rolesBody(inContract: specData))
+    } catch {
+        die("error: \(error)")
     }
 
     do {

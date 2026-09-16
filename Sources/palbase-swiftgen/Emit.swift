@@ -1026,7 +1026,7 @@ private func max0(_ n: Int) -> Int {
 // --- Roles and permissions ---------------------------------------------------
 //
 // `palbase spec` writes the environment's role definitions beside its contract
-// (`palbase/environments/<env>/roles.json`); this turns them into two String-backed
+// (inside the contract, as `x-palbase-roles`); this turns them into two String-backed
 // enums appended to the same generated file, so an app has ONE committed codegen
 // artifact rather than a second one to wire up.
 //

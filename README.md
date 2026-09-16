@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.62.1")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.62.2")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -179,7 +179,6 @@ One CLI command does both halves — **fetch** (online) and **generate**
      environments/
        local/                         the stack `palbase start` runs here
          openapi.json                 the contract
-         roles.json                   the role definitions
          ios-config.json              the ios slot the generator reads
          macos-config.json            the macos slot the generator reads
        main/
