@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.62.0")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.62.1")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -159,21 +159,23 @@ You don't call `configure()` in code, and nothing is generated during a build.
 One CLI command does both halves — **fetch** (online) and **generate**
 (offline) — and you commit the result:
 
-1. **Link each platform** with the Palbase CLI from your project root. Run the
+1. **Link the project** with the Palbase CLI from your project root. Run the
    command for every platform your project ships:
 
    ```bash
-   palbase link <url> --platform ios
-   palbase link <url> --platform macos
+   palbase link <project> --platform ios
+   palbase link <project> --platform macos
    ```
 
-   Use your environment's URL. The CLI creates ONE visible directory in your
-   checkout — `palbase/` — and everything that belongs to one environment lives
-   together in that environment's own directory:
+   Name the project — by its name, or by the ref of any of its environments.
+   The link binds the checkout to the PROJECT, and one link writes EVERY
+   environment of it. The CLI creates ONE visible directory in your checkout —
+   `palbase/` — and everything that belongs to one environment lives together
+   in that environment's own directory:
 
    ```text
    palbase/
-     project.json                     which project this checkout talks to
+     project.json                     which project this checkout belongs to
      environments/
        local/                         the stack `palbase start` runs here
          openapi.json                 the contract
@@ -181,10 +183,12 @@ One CLI command does both halves — **fetch** (online) and **generate**
          ios-config.json              the ios slot the generator reads
          macos-config.json            the macos slot the generator reads
        main/
-         …                            same files, for the deployed environment
+         …                            same files, for each deployed environment
+       staging/
+         …
    ```
 
-   Each link updates its platform slot in every environment it resolves. An
+   Each link updates its platform slot in every environment of the project. An
    iOS-only project gets only `ios-config.json`; a macOS-only project gets only
    `macos-config.json`. The generator reads these paths by rule. It does not
    inspect Xcode target names or use bundle IDs to choose a config.

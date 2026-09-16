@@ -124,6 +124,19 @@ func planGeneration(_ args: Args) throws -> GenerationPlan {
     return GenerationPlan(swiftJob: swiftJob, plistJob: plistJob)
 }
 
+/// Where the roles artifact is, expressed as the CLI's own rule.
+///
+/// The CLI writes `palbase/environments/<env>/roles.json` beside that
+/// environment's `openapi.json` (`layout.go:69`), so the rule is "the sibling
+/// named `roles.json`" — not a transformation of the spec's own file name. It is
+/// a named function so a test can measure the RESOLUTION; the golden test that
+/// calls `emitRoles` directly cannot, and that gap is why a broken rule shipped.
+func rolesArtifactURL(besideSpec spec: String) -> URL {
+    URL(fileURLWithPath: spec)
+        .deletingLastPathComponent()
+        .appendingPathComponent("roles.json")
+}
+
 func die(_ msg: String) -> Never {
     FileHandle.standardError.write(Data((msg + "\n").utf8))
     exit(1)
@@ -158,21 +171,30 @@ if let job = plan.swiftJob {
     // Roles → typed role/permission enums, appended to the same generated file for
     // the same reason the catalog is: one committed codegen artifact.
     //
-    // The path is DERIVED, not passed. `palbase spec` writes the definitions beside
-    // the contract in the same environment directory, and this derives the name
-    // from the spec's own (`<spec>.json` → `<spec>.roles.json`) precisely so a
-    // generator handed the spec can find them BY RULE — the CLI that writes both
-    // lives in another repository, and a second setting somebody has to keep in
-    // step is a setting that drifts.
+    // The path is DERIVED, not passed, and the RULE IS THE CLI'S: the definitions
+    // sit beside the contract under the name the CLI writes them as — `roles.json`.
+    // Deriving a name from the spec's own instead is what broke this: it looked for
+    // `<spec>.roles.json`, the CLI writes `roles.json`, and the two never met.
+    //
+    // MEASURED 16.09.2026, end to end. With `roles.json` beside `openapi.json` —
+    // exactly what `palbase link` leaves on disk — this tool exited 0 and emitted a
+    // client with ZERO role types. Copying the same bytes to `openapi.roles.json`
+    // made them appear (`case author`, `case moderator`), which is what proved the
+    // path and not the decoder. So every Apple client generated since this rule was
+    // written has been missing its role enums, silently, and the golden test stayed
+    // green because it calls `emitRoles` directly and never resolves a path.
+    //
+    // Android already follows the CLI's rule (`environmentDirectory.resolve(
+    // ROLES_FILE)` where `ROLES_FILE = "roles.json"`), and its plugin test writes a
+    // real file and reads the enums back — which is why the same bug never reached
+    // it. The rule is the file name, not a transformation of the spec's.
     //
     // No file is an ANSWER, not a failure: a checkout whose last `palbase spec`
     // predates roles has none, and that project must still generate the client it
     // generated before, byte for byte. A file that is there but does not parse is
     // the opposite — the definitions were fetched and something is wrong with them,
     // and emitting no types would hand back a client missing exactly what was added.
-    let rolesPath = URL(fileURLWithPath: job.openapi)
-        .deletingPathExtension()
-        .appendingPathExtension("roles.json")
+    let rolesPath = rolesArtifactURL(besideSpec: job.openapi)
     if FileManager.default.fileExists(atPath: rolesPath.path) {
         do {
             swift += try emitRoles(Data(contentsOf: rolesPath))
