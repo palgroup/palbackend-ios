@@ -588,19 +588,22 @@ private func topLevelErrorEnumLines(_ enumName: String, _ errs: [SwiftErrorDef])
     lines.append("public nonisolated enum " + enumName + ": PBError {")
     let fd = 1
 
-    // `other` is reserved for the fallback case; a declared error whose name
-    // sanitizes to it (or to a previous case's ident) is skipped with a comment.
+    // `other` is reserved for the fallback case. A declared error whose name
+    // sanitizes to it, or to another declared error's case, cannot have a case
+    // of its own — and leaving it out would hand the app an `.other` for an
+    // error the contract names. Refuse the contract visibly instead, the way a
+    // colliding struct field is refused.
     var seenIdent: [String: String] = ["other": "the other(BackendError) fallback"]
     var cases: [SwiftErrorDef] = []
     for e in errs {
         let ident = unbacktick(identOf(e.name))
         if let first = seenIdent[ident] {
-            lines.append(indent(fd) + "// codegen: skipped declared error " +
-                swiftStringLiteral(e.name) + " — collides with " + first +
-                " (both map to Swift `" + ident + "`); it surfaces as .other at runtime")
+            lines.append(indent(fd) + "#error(" + swiftStringLiteral(
+                "palbase: " + enumName + " declares error " + e.name + " (" + e.code + "), which maps to the same Swift case `" +
+                ident + "` as " + first + ". Rename one of the errors in the backend and regenerate the client.") + ")")
             continue
         }
-        seenIdent[ident] = swiftStringLiteral(e.name)
+        seenIdent[ident] = e.name + " (" + e.code + ")"
         cases.append(e)
     }
 
@@ -631,7 +634,7 @@ private func topLevelErrorEnumLines(_ enumName: String, _ errs: [SwiftErrorDef])
         return lines
     }
     lines.append(indent(fd) + "public nonisolated init(_ backend: BackendError) {")
-    lines.append(indent(fd + 1) + "guard case .server(let f) = backend else { self = .other(backend); return }")
+    lines.append(indent(fd + 1) + "guard let f = backend.failure else { self = .other(backend); return }")
     lines.append(indent(fd + 1) + "switch f.code {")
     for e in cases {
         let caseName = identOf(e.name)
