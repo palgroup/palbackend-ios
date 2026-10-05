@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.66.0")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.66.1")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -55,11 +55,30 @@ Each product carries every layer beneath it, once — pick the highest one you
 need, not several. A chat app that never places a call links `PalbeMessaging`
 and never carries LiveKit's ~29 MB WebRTC stack; that is the whole point of the
 split. `PalbeCall` alone includes the media runtime as flat SwiftPM binary
-targets so Xcode signs them for device builds — do not add LiveKit yourself.
+targets (`PalbeCallWebRTC`, `PalbeCallUniFFI`) so Xcode signs them for device
+builds — do not add LiveKit yourself.
 SwiftPM necessarily makes the packaging modules `LiveKitWebRTC` and
 `RustLiveKitUniFFI` visible to a target that links `PalbeCall`; they are
 unsupported implementation artifacts, not Palbe API, and may change without
 compatibility guarantees. Do not import them.
+
+### Your app already uses LiveKit
+
+`Palbe` and `PalbeMessaging` contain no LiveKit, so an app can add
+[LiveKit](https://github.com/livekit/client-sdk-swift) beside either of them for
+features of its own. Versions up to 0.66.0 could not be combined with LiveKit at
+all — package resolution failed with *"multiple packages declare targets with a
+conflicting name: 'LiveKitWebRTC'"*, whichever product you linked; 0.66.1 and
+later resolve.
+
+`PalbeCall` is the exception: it carries its own LiveKit build, pinned to the
+WebRTC runtime it ships, so an app that also adds LiveKit would carry two of
+each, and Xcode refuses to build it (*"Multiple commands produce
+…/LiveKitWebRTC.framework"*). If you need your own LiveKit **and** Palbe calls,
+link `PalbeMessaging` instead and give it a media transport built on your
+LiveKit: conform to `CallMediaTransport` and register it once at launch with
+`CallMediaRegistry.shared.register { e2ee in YourTransport(e2ee: e2ee) }` — the
+same seam `PalbeCall.enable()` uses.
 
 Third-party code arrives with the **`PalbeCall`** product only (LiveKit, WebRTC,
 the LiveKit UniFFI runtime, SwiftProtobuf) — `Palbe` and `PalbeMessaging` link

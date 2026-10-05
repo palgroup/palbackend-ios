@@ -21,37 +21,37 @@ let package = Package(
     products: [
         .library(name: "Palbe", targets: ["Palbe"]),
         .library(name: "PalbeMessaging", targets: ["Palbe", "PalbeMessaging"]),
-        .library(name: "PalbeCall", targets: ["Palbe", "PalbeMessaging", "PalbeCall", "LiveKitWebRTC", "RustLiveKitUniFFI"]),
+        .library(name: "PalbeCall", targets: ["Palbe", "PalbeMessaging", "PalbeCall", "PalbeCallWebRTC", "PalbeCallUniFFI"]),
         .library(name: "PalbePurchases", targets: ["PalbePurchases"]),
     ],
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.0/Palbe.xcframework.zip",
-            checksum: "5fa313ad3d24c613dad57ed867bd526cbe4537baab5945230109d73e6f3d0f1a"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.1/Palbe.xcframework.zip",
+            checksum: "a059c3c9bbdebca6e749431db1725f2b2e5da8b8b8de5152b156d28761b54396"
         ),
         .binaryTarget(
             name: "PalbeMessaging",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.0/PalbeMessaging.xcframework.zip",
-            checksum: "7e36188b813d707a193f641a46f504517d654eea38f53282e5db3060fd476f1c"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.1/PalbeMessaging.xcframework.zip",
+            checksum: "e76b617019362dc7818fb44cb21b0998e31e18f5f4aef89285f71442e066a2a6"
         ),
         .binaryTarget(
             name: "PalbeCall",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.0/PalbeCall.xcframework.zip",
-            checksum: "ccc359a2bfce63573e47947e85229b37340888581e30131d251966c9c35982bd"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.1/PalbeCall.xcframework.zip",
+            checksum: "f9eafa314e8e713192da934058d22db48e34b10093a5c3efe6bf95e2721dd4ed"
         ),
         .binaryTarget(
             name: "PalbePurchases",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.0/PalbePurchases.xcframework.zip",
-            checksum: "e25dcf497486b3ef5087bf80d81802ae867341c8190eb7cefe69fa98c82b9a61"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.1/PalbePurchases.xcframework.zip",
+            checksum: "e2e24fa7f1fbd0763571c308a0078d70a754b5459ed2ba59c22a95426ae2a7ca"
         ),
         .binaryTarget(
-            name: "RustLiveKitUniFFI",
+            name: "PalbeCallUniFFI",
             url: "https://github.com/livekit/livekit-uniffi-xcframework/releases/download/0.0.6/RustLiveKitUniFFI.xcframework.zip",
             checksum: "0d3f2ce159a224c728f8b131068d53bbf9b13d968cda0edc68a6a2290f2651ed"
         ),
         .binaryTarget(
-            name: "LiveKitWebRTC",
+            name: "PalbeCallWebRTC",
             url: "https://github.com/livekit/webrtc-xcframework/releases/download/144.7559.08/LiveKitWebRTC.xcframework.zip",
             checksum: "aaffd15670e71d735b1d1ff9454459cc25416f10a157b5c0f49932a18198fa33"
         ),
