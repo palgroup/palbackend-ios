@@ -27,23 +27,23 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "Palbe",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.1/Palbe.xcframework.zip",
-            checksum: "a059c3c9bbdebca6e749431db1725f2b2e5da8b8b8de5152b156d28761b54396"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.67.0/Palbe.xcframework.zip",
+            checksum: "28ce9c91afa9f46df9a0dfa9d9e42b0958d587d95875e49248aed6aab17f3b6b"
         ),
         .binaryTarget(
             name: "PalbeMessaging",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.1/PalbeMessaging.xcframework.zip",
-            checksum: "e76b617019362dc7818fb44cb21b0998e31e18f5f4aef89285f71442e066a2a6"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.67.0/PalbeMessaging.xcframework.zip",
+            checksum: "d535efb1e11f4f3e2fb9f9040d85782a95052483be81bcdf8b04316e24ae66ff"
         ),
         .binaryTarget(
             name: "PalbeCall",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.1/PalbeCall.xcframework.zip",
-            checksum: "f9eafa314e8e713192da934058d22db48e34b10093a5c3efe6bf95e2721dd4ed"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.67.0/PalbeCall.xcframework.zip",
+            checksum: "2d7a84cc0ddd0a90b80541a6e17524da4722c1321852f11d9b3aa7d66a02d932"
         ),
         .binaryTarget(
             name: "PalbePurchases",
-            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.66.1/PalbePurchases.xcframework.zip",
-            checksum: "e2e24fa7f1fbd0763571c308a0078d70a754b5459ed2ba59c22a95426ae2a7ca"
+            url: "https://github.com/palgroup/palbackend-ios/releases/download/v0.67.0/PalbePurchases.xcframework.zip",
+            checksum: "02e5e4650e855233d7e196357d6fff545fd11c444874750f3af921dd45d84920"
         ),
         .binaryTarget(
             name: "PalbeCallUniFFI",

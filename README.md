@@ -28,7 +28,7 @@ One package URL, four products: three **stacked** layers (`Palbe` →
 Xcode (**File ▸ Add Package Dependencies…**) or in your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.66.1")
+.package(url: "https://github.com/palgroup/palbackend-ios", from: "0.67.0")
 ```
 
 Then add **exactly one** of the three layered libraries to your app target — plus
@@ -401,7 +401,10 @@ let unsubscribe = await pb.auth.onAuthStateChange { state in
 ```
 
 `onAuthEvent` is a separate hook for side effects (analytics, toasts, debug
-logs) including `tokenRefreshed` and `signedOut(.sessionExpired)`.
+logs) including `tokenRefreshed` and the two involuntary sign-outs:
+`signedOut(.sessionExpired)` (the refresh token outlived its lifetime) and
+`signedOut(.sessionRevoked)` (the server ended the session — revoked, banned,
+token reuse). To route a user back to sign-in after either, match both.
 
 ### Feature flags
 
